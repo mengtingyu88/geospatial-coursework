@@ -28,7 +28,12 @@ Weekly guided exercises. The goal is to get the mechanics right: reading data co
 
 ::: {.g-col-12 .g-col-md-4}
 ### [Hands-on Ex01](Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.qmd)
-Geospatial data wrangling with sf. Importing, projecting, and joining aspatial and geospatial data.
+Geospatial data wrangling with sf and choropleth mapping with tmap. Projections, geoprocessing, and how much a classification scheme changes the story.
+:::
+
+::: {.g-col-12 .g-col-md-4}
+### [Hands-on Ex02](Hands-on_Ex/Hands-on_Ex02/Hands-on_Ex02.qmd)
+Spatial point patterns with spatstat. Nearest neighbour tests, kernel density, the G, F, K and L functions, and why the null hypothesis is the hard part.
 :::
 
 :::

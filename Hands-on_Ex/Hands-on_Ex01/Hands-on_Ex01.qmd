@@ -1,45 +1,1135 @@
 ---
-title: "Hands-on Exercise 01: Geospatial Data Wrangling"
+title: "Hands-on Exercise 01: Geospatial Data Wrangling and Choropleth Mapping"
 author: "Meng Tingyu"
 date: "last-modified"
 date-format: "DD MMM YYYY"
+execute:
+  warning: false
+  message: false
 ---
 
 ## Overview
 
-Placeholder. I will replace this with the actual write-up after the first lesson.
+This exercise covers the first two chapters of the course reference, which between them run from raw files to a finished map.
 
-The plan for this exercise is to import geospatial data in shapefile and KML format, import an aspatial dataset and convert it into a spatial object, and check that everything ends up in a consistent coordinate reference system before any analysis begins.
+The first part is data preparation. I import vector data in three different formats, get their coordinate reference systems to agree, turn a table of latitudes and longitudes into a spatial object, and then use two small geoprocessing tasks to answer questions that are only answerable once the data is spatial.
+
+The second part joins population figures to subzone boundaries and maps the result as a choropleth. Most of the effort there goes into the classification scheme rather than into drawing the map, because the same numbers produce very different looking maps depending on how the classes are cut.
+
+The third part is my own. I wanted to put numbers on three things the chapters mention in passing but do not test, which are how many classes a choropleth can usefully carry, whether counting points inside a polygon boundary is a fair way to measure provision, and how much the answers move when the boundary vintage changes.
+
+::: {.callout-note}
+## Reference
+
+Chapter 1, Geospatial Data Science with R, and Chapter 2, Thematic Mapping and GeoVisualisation with R, from the course reference guide.
+:::
 
 ## Getting started
 
 ```{r}
-pacman::p_load(sf, tidyverse, tmap)
+pacman::p_load(sf, tmap, tidyverse, classInt, units, knitr)
 ```
 
-## Importing geospatial data
+I use `p_load()` rather than a series of `library()` calls because it installs anything that is missing before loading it. For a document that is supposed to be reproducible on a machine other than mine, that matters more than the keystrokes it saves.
+
+The packages break down as follows. `sf` handles everything geospatial, from reading files to reprojecting to geoprocessing. `tmap` draws the thematic maps. `tidyverse` brings `readr` for the csv files, `dplyr` for the joins and mutations, `tidyr` for reshaping the population table and `ggplot2` for the statistical charts. `classInt` is not in the chapter, and I added it in Part 3 so that I could compute class breaks outside of tmap and inspect them directly. `units` keeps areas labelled with their units instead of turning them into bare numbers.
+
+### A note on tmap versions
 
 ```{r}
-#| eval: false
-mpsz <- st_read(dsn = "data/geospatial", 
-                layer = "MP14_SUBZONE_WEB_PL")
+packageVersion("tmap")
 ```
 
-## Checking the coordinate reference system
+The course materials are written against tmap version 3, and the version on my machine is version 4. Version 4 changed the argument system substantially. The old syntax still runs through a compatibility layer, but it prints deprecation notices on every map, which makes the rendered document very hard to read.
 
-Always confirm the CRS before doing anything else. Singapore data arrives in a mix of SVY21 and WGS84, and any calculation involving distance or area needs a projected CRS.
+I have used version 4 syntax throughout. These are the substitutions involved.
+
+| tmap v3 | tmap v4 |
+|---|---|
+| `tm_fill(col = "X", style = "quantile", palette = "Blues")` | `tm_polygons(fill = "X", fill.scale = tm_scale_intervals(style = "quantile", values = "brewer.blues"))` |
+| `tm_layout(main.title = "...")` | `tm_title("...")` |
+| `tm_scale_bar()` | `tm_scalebar()` |
+| `tm_polygons(col = "X")` | `tm_polygons(fill = "X")`, since `col` now sets the border colour |
+| `tm_borders(alpha = 0.5)` | `tm_borders(fill_alpha = 0.5)` |
+
+The fourth one caught me out for a while. In version 4 `col` means the border colour on a polygon layer, so passing the thematic variable to `col` produces a map where the borders are coloured and the fills are all grey, which looks like a rendering bug rather than a syntax error.
+
+## Data provenance
+
+The chapters name six datasets. Two of them needed a substitution, and I have recorded both rather than quietly swapping them.
+
+The first substitution is the boundary file. Chapter 1 asks for Master Plan 2014 Subzone Boundary (Web). The portal now serves the (No Sea) variant of the same 2014 boundary definition. The two differ in where the polygons stop at the coast, with (No Sea) clipped to the coastline and (Web) extending out over the water. For this exercise the clipped version is the better one anyway, because the pre-school density calculation divides by subzone area, and sea polygons would inflate the denominator without contributing any pre-schools.
+
+The second is the file format. The portal now serves GeoJSON where the chapters expect shapefile and KML. I kept GeoJSON, and there is a section below on what I found when I tried the KML round trip, which turned out to be more instructive than simply noting that the format changed.
+
+| Dataset | Source | Format | Native CRS |
+|---|---|---|---|
+| Master Plan 2014 Subzone Boundary (No Sea) | data.gov.sg, URA | GeoJSON | WGS84, EPSG:4326 |
+| Master Plan 2019 Subzone Boundary (No Sea) | data.gov.sg, URA | GeoJSON | WGS84, EPSG:4326 |
+| Pre-Schools Location | data.gov.sg, ECDA | GeoJSON | WGS84, EPSG:4326 |
+| Cycling Path Network | data.gov.sg, LTA | GeoJSON | WGS84, EPSG:4326 |
+| Singapore Airbnb listings | Inside Airbnb | CSV | none, latitude and longitude columns |
+| Residents by subzone, age group, sex and dwelling type | Department of Statistics | CSV | none, subzone name as key |
+
+Everything sits under `data/geospatial` and `data/aspatial` inside this exercise folder, so the paths in the code below are relative to the qmd file and the whole document runs from a clean checkout of the repository.
+
+## Part 1, geospatial data wrangling
+
+### Importing the geospatial layers
 
 ```{r}
-#| eval: false
-st_crs(mpsz)
+mpsz14 <- st_read("data/geospatial/MasterPlan2014SubzoneBoundaryNoSea.geojson")
 ```
 
 ```{r}
-#| eval: false
-mpsz3414 <- st_transform(mpsz, crs = 3414)
+cyclingpath <- st_read("data/geospatial/CyclingPathNetwork.geojson")
+```
+
+```{r}
+preschool <- st_read("data/geospatial/PreSchoolsLocation.geojson")
+```
+
+::: {.callout-tip}
+## Reading the st_read message
+
+The message that `st_read()` prints is worth actually reading rather than scrolling past, because three of the things in it will cause silent errors later if they are wrong.
+
+The geometry type tells me which operations are meaningful. The subzones are multipolygons, the cycling paths are multilinestrings and the pre-schools are points. I can buffer a line, but asking for its area would return zero and no warning.
+
+The bounding box is the fastest sanity check available. The values here are around 103 to 104 and 1.1 to 1.5, which are degrees of longitude and latitude. If the file had arrived in a projected system the numbers would be in the tens of thousands, because SVY21 measures metres from an origin southwest of the island.
+
+The declared coordinate reference system is WGS84 in all three cases, which is the problem the projection section deals with.
+:::
+
+### Looking inside a simple feature data frame
+
+An `sf` object is a data frame with an extra list column holding the geometries. Every `dplyr` verb works on it, and the geometry travels with the rows through filters and joins. Three functions give three different views of it.
+
+```{r}
+st_geometry(mpsz14)
+```
+
+```{r}
+glimpse(mpsz14)
+```
+
+```{r}
+head(mpsz14, n = 3)
+```
+
+`st_geometry()` returns the geometry column on its own, so it shows the geometry type, the extent and the CRS while saying nothing about the attributes. `glimpse()` does the opposite and lists every column with its type, which is how I would notice a count field that has arrived as text. `head()` shows what a complete record looks like, with the attributes and the geometry side by side.
+
+### A first plot
+
+```{r}
+plot(mpsz14)
+```
+
+The default plot of an `sf` object draws one small map per attribute, up to a limit. It is useful for a first look and useless for anything else, since none of the panels is large enough to read.
+
+```{r}
+plot(st_geometry(mpsz14))
+```
+
+```{r}
+plot(mpsz14["PLN_AREA_N"])
+```
+
+Passing a single column name plots that attribute alone. Base `plot()` is the right tool for checking that the geometry loaded correctly, and `tmap` is the right tool for anything that another person is going to look at.
+
+Now the thing the chapter asks about, which is what happens when the pre-schools are overlaid on the subzones before the projections are fixed.
+
+```{r}
+plot(st_geometry(mpsz14))
+plot(st_geometry(preschool), add = TRUE)
+```
+
+::: {.callout-important}
+## Why the pre-schools can fail to appear
+
+In my case both layers arrived in WGS84, so they do line up and the overlay works. In the chapter's version the subzone layer was already in SVY21 while the pre-schools were still in WGS84, and the pre-school points landed at coordinates around 103 and 1, which read as SVY21 metres is a point roughly a hundred metres from the projection origin. That is far outside the plotting extent of the subzone layer, so the points get drawn off the edge of the canvas and nothing shows.
+
+The failure mode is worth noting even though I did not hit it. Nothing errors, nothing warns, and the map simply comes back looking like the second layer failed to load. The same mismatch inside a distance calculation would return a number instead of an empty map, and that number would be wrong by a factor of about a hundred thousand.
+:::
+
+### Working with projection
+
+```{r}
+st_crs(mpsz14)$input
+st_crs(cyclingpath)$input
+st_crs(preschool)$input
+```
+
+All three layers are in WGS84, EPSG:4326. That is a geographic coordinate system whose units are degrees, which makes it unusable for anything involving distance or area. A buffer of five in this system would be five degrees, which is somewhere around 555 kilometres. Worse, a degree of longitude and a degree of latitude are not the same distance on the ground, so even the shape of the buffer would be wrong.
+
+Singapore's national projected system is SVY21, EPSG:3414, and its units are metres.
+
+```{r}
+mpsz14 <- st_transform(mpsz14, crs = 3414)
+cyclingpath <- st_transform(cyclingpath, crs = 3414)
+preschool <- st_transform(preschool, crs = 3414)
+
+st_bbox(mpsz14)
+```
+
+The bounding box now reports five figure numbers rather than degrees, which confirms the transform did what I wanted.
+
+::: {.callout-warning}
+## st_set_crs() against st_transform()
+
+These two look similar and do completely different things, and the chapter uses both, so I want to be able to state the difference precisely.
+
+`st_set_crs()` changes the label attached to the coordinates without touching a single number. It is an assertion that the numbers were always in the system I am naming. The only correct use for it is when a file arrived with a missing or wrong CRS tag and I know what the right one is. Chapter 1 hits exactly this case, where the shapefile declares SVY21 in its name but carries EPSG 9001 instead of 3414, and `st_set_crs(mpsz, 3414)` repairs the label without moving anything.
+
+`st_transform()` recalculates every coordinate into a different system. It is what I need whenever the data really has to move from one system to another.
+
+Using the wrong one produces no error and no warning at any point. Setting a CRS when I should have transformed leaves the numbers in degrees while claiming they are metres, and every downstream area, distance and buffer is silently wrong. This is the most dangerous operation in the chapter, precisely because it fails quietly.
+:::
+
+### Trying the KML version
+
+The chapter reads one of its layers from KML, and the portal no longer offers that format, so I wrote one out and read it straight back to see what the format costs.
+
+```{r}
+dir.create("data/geospatial/kml", recursive = TRUE, showWarnings = FALSE)
+
+st_write(mpsz14,
+         "data/geospatial/kml/MP14_Subzone.kml",
+         driver = "KML",
+         delete_dsn = TRUE,
+         quiet = TRUE)
+
+mpsz14_kml <- st_read("data/geospatial/kml/MP14_Subzone.kml", quiet = TRUE)
+```
+
+```{r}
+tibble(
+  aspect = c("Attribute columns", "First few column names",
+             "Coordinate reference system", "Feature count"),
+  geojson = c(as.character(ncol(mpsz14) - 1),
+              paste(head(setdiff(names(mpsz14), "geometry"), 4), collapse = ", "),
+              st_crs(mpsz14)$input,
+              as.character(nrow(mpsz14))),
+  kml = c(as.character(ncol(mpsz14_kml) - 1),
+          paste(head(setdiff(names(mpsz14_kml), "geometry"), 4), collapse = ", "),
+          st_crs(mpsz14_kml)$input,
+          as.character(nrow(mpsz14_kml)))
+) %>%
+  kable(caption = "What survives a round trip through KML")
+```
+
+::: {.callout-important}
+## What the round trip destroyed
+
+Two things came back different.
+
+The attribute table collapsed. Every named column, `SUBZONE_N`, `PLN_AREA_N`, `REGION_N` and the rest, was flattened into a generic `Name` field and a `Description` field containing an HTML fragment. The geometry survived intact but the schema did not, and recovering the attributes would mean parsing them back out of HTML strings.
+
+The coordinate reference system reverted. The KML specification requires WGS84, so `st_write()` silently reprojected out of the SVY21 metres I had just transformed into. Reading the file back gives me degrees again. If I had carried on working from that object, every area and buffer in the rest of this document would have been wrong, and nothing would have told me.
+
+None of this makes KML a bad format. It is a presentation format designed for drawing things in Google Earth, where a person clicks a shape and reads a description bubble, and for that job an HTML blob is exactly right. GeoJSON and shapefile are analysis formats that keep typed columns and let me declare a projected CRS. The chapter's instruction predates the portal switching to GeoJSON, and for this work GeoJSON is the best of the three.
+:::
+
+### Importing and converting aspatial data
+
+The Airbnb listing file has no geometry. It has a latitude column and a longitude column, which is a different thing, and R reads it as an ordinary table.
+
+```{r}
+listings <- read_csv("data/aspatial/listings.csv", show_col_types = FALSE)
+glimpse(listings)
+```
+
+```{r}
+listings_sf <- st_as_sf(listings,
+                        coords = c("longitude", "latitude"),
+                        crs = 4326) %>%
+  st_transform(crs = 3414)
+
+glimpse(listings_sf)
+```
+
+The longitude and latitude columns are gone and a `geometry` column has appeared in their place, which is what `st_as_sf()` is for.
+
+::: {.callout-warning}
+## Two arguments that are easy to get backwards
+
+`coords` takes the x column first and then the y column, so it is longitude before latitude. Writing them the other way round throws no error at all. It places every Singapore listing at roughly 1 degree east and 103 degrees north, which is in the Arctic Ocean somewhere north of Norway, and the only symptom is a map that looks empty because the points are thousands of kilometres outside the frame.
+
+The `crs = 4326` here is doing the labelling job, not the transforming job. The numbers in those two columns are already degrees, so I tag them correctly first and only then pipe into `st_transform()` to get metres. Passing `crs = 3414` at this point would claim the degree values were already metres and would put every listing within about a kilometre of the projection origin.
+:::
+
+```{r}
+st_bbox(listings_sf)
+```
+
+The bounding box falls inside Singapore, so the column order was right.
+
+Following the chapter's exercise, here is the listings layer drawn over the subzones.
+
+```{r}
+plot(st_geometry(mpsz14))
+plot(st_geometry(listings_sf), add = TRUE, col = "red", pch = 20, cex = 0.3)
+```
+
+### Geoprocessing, land within five metres of a cycling path
+
+The scenario is that the authority wants to widen the existing cycling network and needs five metres of reserved land on each side. The question is how much land that comes to.
+
+```{r}
+buffer_cycling <- st_buffer(cyclingpath, dist = 5, nQuadSegs = 30)
+buffer_cycling$AREA <- st_area(buffer_cycling)
+sum(buffer_cycling$AREA)
+```
+
+```{r}
+total_ha <- sum(buffer_cycling$AREA) %>% set_units("hectares")
+total_ha
+```
+
+The `dist = 5` means five metres only because the layer is in EPSG:3414. This is the payoff from the transform earlier, and it is invisible in the code. `nQuadSegs = 30` controls how many straight segments approximate each quarter circle at the ends and corners of the buffer, so a higher number gives a smoother buffer at the cost of a larger object.
+
+::: {.callout-important}
+## The naive sum double counts
+
+`st_area()` returns a units object, so the sum arrives labelled in square metres and `set_units()` converts it safely rather than by multiplying by a conversion factor I looked up somewhere.
+
+The bigger issue is that summing the per feature areas counts overlapping land twice. Wherever two cycling paths run close together their five metre buffers intersect, and that shared strip appears in both features. For a land acquisition estimate this overstates the requirement. Dissolving the buffers first fixes it.
+:::
+
+```{r}
+dissolved_ha <- buffer_cycling %>%
+  st_union() %>%
+  st_area() %>%
+  set_units("hectares")
+
+dissolved_ha
+```
+
+```{r}
+overlap_pct <- as.numeric((total_ha - dissolved_ha) / total_ha * 100)
+sprintf("The naive sum overstates the footprint by %.1f percent", overlap_pct)
+```
+
+The gap between the two figures is the overlapping land. It is not a rounding difference, and reporting the first number as a land requirement would be a real error in a real project.
+
+The chapter also asks for a plot of the buffers clipped to one subzone, so here is Tampines West.
+
+```{r}
+mpsz_selected <- mpsz14 %>%
+  filter(SUBZONE_N == "TAMPINES WEST")
+
+buffer_cycling_selected <- st_intersection(buffer_cycling, mpsz_selected)
+
+plot(st_geometry(mpsz_selected))
+plot(st_geometry(buffer_cycling_selected), add = TRUE, col = "grey40", border = NA)
+```
+
+### Geoprocessing, pre-schools by subzone
+
+```{r}
+mpsz14$PreSch_Count <- lengths(st_intersects(mpsz14, preschool))
+summary(mpsz14$PreSch_Count)
+```
+
+```{r}
+mpsz14 %>%
+  st_drop_geometry() %>%
+  select(SUBZONE_N, PLN_AREA_N, PreSch_Count) %>%
+  arrange(desc(PreSch_Count)) %>%
+  head(10) %>%
+  kable(caption = "Subzones with the most pre-schools")
+```
+
+::: {.callout-tip}
+## What st_intersects() actually returns
+
+It does not return counts. It returns a list with one element for every subzone, and each element holds the row indices of the pre-schools that fall inside that subzone. `lengths()`, with the s, then measures each element of that list. Using `length()` without the s would return a single number, the count of subzones, which is not what anyone wants.
+
+Getting indices back rather than a count is more useful than it first looks, because it means I can move from how many to which ones without recomputing anything.
+
+This is also the operation that answers the question of how a computer knows a point sits inside a polygon. It is not running every subzone against every pre-school. It builds a spatial index first, uses bounding boxes to throw out the pairs that cannot possibly intersect, and only runs the exact geometric test on the survivors.
+:::
+
+The chapter warns not to confuse `st_intersects()` with `st_intersection()`. The first is a predicate that answers whether two geometries touch and hands back indices. The second is a constructor that returns new geometry, the actual overlapping shape, which is what I used above to clip the buffers to Tampines West.
+
+### Pre-school density
+
+```{r}
+mpsz14$Area_sqkm <- st_area(mpsz14) %>%
+  set_units("km^2") %>%
+  as.numeric()
+
+mpsz14$PreSch_Density <- mpsz14$PreSch_Count / mpsz14$Area_sqkm
+```
+
+```{r}
+mpsz14 %>%
+  st_drop_geometry() %>%
+  select(SUBZONE_N, PreSch_Count, Area_sqkm, PreSch_Density) %>%
+  arrange(desc(PreSch_Density)) %>%
+  head(10) %>%
+  mutate(across(where(is.numeric), ~round(.x, 2))) %>%
+  kable(caption = "Highest pre-school density, per square kilometre")
+```
+
+The two rankings disagree noticeably. The highest counts sit in large mature residential towns, while the highest densities tend to be small tight subzones where a handful of pre-schools sits on very little land. Which measure is the right one depends entirely on the question. Count answers how much provision exists, density answers how concentrated it is, and neither answers whether the provision is adequate, which would need a denominator of children rather than of land.
+
+### Exploratory data analysis
+
+```{r}
+hist(mpsz14$PreSch_Density)
+```
+
+Base `hist()` is one line and the output is unusable outside my own screen. There is no informative title, the axis labels are the variable expressions, and there is very little room to change any of it.
+
+```{r}
+ggplot(data = mpsz14, aes(x = PreSch_Density)) +
+  geom_histogram(bins = 20, colour = "black", fill = "#9C4A2F", alpha = 0.85) +
+  labs(title = "Pre-school density is heavily right skewed",
+       subtitle = "Most subzones sit near zero while a small number reach thirty or more per square kilometre",
+       x = "Pre-schools per square kilometre",
+       y = "Number of subzones") +
+  theme_minimal()
+```
+
+This shape matters a great deal in Part 2. A variable with a long right tail gets carved up very differently by a scheme that divides the value range than by one that divides the count of observations, and the classification section is essentially a test of that.
+
+```{r}
+ggplot(data = mpsz14, aes(x = PreSch_Density, y = PreSch_Count)) +
+  geom_point(colour = "#6E7F63", alpha = 0.7) +
+  labs(title = "Count and density are only loosely related",
+       subtitle = "A large subzone can hold many pre-schools while still being sparsely provided",
+       x = "Pre-schools per square kilometre",
+       y = "Pre-school count") +
+  theme_minimal()
+```
+
+## Part 2, choropleth mapping
+
+A choropleth shades enumeration units by a value. The useful way to think about it, and the one that makes the classification section make sense, is that it is a histogram with the location put back in. Choosing class breaks is the same act as choosing histogram bins, and nobody would accept arbitrary bins on a histogram without asking what they were.
+
+### Importing the data
+
+```{r}
+mpsz19 <- st_read("data/geospatial/MasterPlan2019SubzoneBoundaryNoSea.geojson") %>%
+  st_transform(crs = 3414)
+```
+
+```{r}
+names(mpsz19)
 ```
 
 ::: {.callout-note}
-## Note to self
-`st_set_crs()` and `st_transform()` do different things. `st_set_crs()` only relabels the data as being in a given CRS without moving any coordinates, so it is the right tool when the CRS tag is wrong but the numbers are fine. `st_transform()` actually reprojects the coordinates. Using the first when I meant the second silently produces wrong distances.
+## If the attribute columns are missing
+
+The GeoJSON I downloaded carries proper named columns. If a version arrives with only `Name` and `Description`, the attributes are buried in an HTML table inside `Description` and have to be parsed out with `rvest`, which is what the chapter does for its KML file. The code for that case looks like this.
+
+```{r}
+#| eval: false
+pacman::p_load(rvest)
+
+extract_kml_field <- function(html_text, field_name) {
+  if (is.na(html_text) || html_text == "") return(NA_character_)
+  page <- read_html(html_text)
+  rows <- page %>% html_elements("tr")
+  value <- rows %>%
+    keep(~ html_text2(html_element(.x, "th")) == field_name) %>%
+    html_element("td") %>%
+    html_text2()
+  if (length(value) == 0) NA_character_ else value
+}
+
+mpsz19 <- mpsz19 %>%
+  mutate(
+    REGION_N   = map_chr(Description, extract_kml_field, "REGION_N"),
+    PLN_AREA_N = map_chr(Description, extract_kml_field, "PLN_AREA_N"),
+    SUBZONE_N  = map_chr(Description, extract_kml_field, "SUBZONE_N"),
+    SUBZONE_C  = map_chr(Description, extract_kml_field, "SUBZONE_C")
+  ) %>%
+  select(-Name, -Description) %>%
+  relocate(geometry, .after = last_col())
+```
+
+This is the same schema collapse I measured in the KML round trip earlier, arriving from the other direction.
 :::
+
+```{r}
+popdata <- read_csv("data/aspatial/respopagesextod2024.csv", show_col_types = FALSE)
+glimpse(popdata)
+```
+
+The table is in long format. Each row is one combination of planning area, subzone, age group, sex and dwelling type, with a population count attached, so the first job is to collapse everything except the age group away.
+
+### Preparing the population table
+
+The chapter defines three age bands and a ratio built from them. Young runs from the 0 to 4 band up to and including 20 to 24. Economically active runs from 25 to 29 up to 60 to 64. Aged is everything from 65 upwards. The dependency ratio is the young plus the aged, divided by the economically active.
+
+```{r}
+popdata2024 <- popdata %>%
+  group_by(PA, SZ, AG) %>%
+  summarise(POP = sum(Pop), .groups = "drop")
+
+sort(unique(popdata2024$AG))
+```
+
+```{r}
+popdata2024 <- popdata2024 %>%
+  mutate(
+    age_lower = as.numeric(str_extract(AG, "^\\d+")),
+    band = case_when(
+      age_lower <= 24 ~ "YOUNG",
+      age_lower <= 64 ~ "ACTIVE",
+      TRUE            ~ "AGED"
+    )
+  ) %>%
+  group_by(PA, SZ, band) %>%
+  summarise(POP = sum(POP), .groups = "drop") %>%
+  pivot_wider(names_from = band, values_from = POP, values_fill = 0) %>%
+  mutate(
+    TOTAL      = YOUNG + ACTIVE + AGED,
+    DEPENDENCY = (YOUNG + AGED) / ACTIVE
+  )
+
+head(popdata2024) %>% kable(caption = "Population bands by subzone")
+```
+
+::: {.callout-important}
+## Why I did not select the age bands by column position
+
+The chapter's version of this step picks age bands by position, with expressions like `rowSums(.[3:6])` and `rowSums(.[13:15])`. That works on the exact file the chapter was written against and breaks silently on anything else, because `pivot_wider()` orders the new columns by the order the values first appear in the data rather than alphabetically or numerically. A different sort order in the source file, or one extra age band, moves every index, and the code still runs, just adding up the wrong columns.
+
+Pulling the lower bound out of the band name with a regular expression and then classifying on the number is more code, but it cannot drift. The band boundaries appear once, as 24 and 64, in a place where I can read them and check them against the definition. Printing the unique band names first is what told me `90_and_over` parses to 90 rather than to `NA`, which is the one case where the pattern could have failed.
+:::
+
+### Joining the population data to the boundaries
+
+The population table keys on subzone name, and the boundary file carries the same names in `SUBZONE_N`. The thing to watch is case, since the two sources do not agree on it.
+
+```{r}
+mpsz19 <- mpsz19 %>%
+  mutate(SUBZONE_N = toupper(SUBZONE_N))
+
+popdata2024 <- popdata2024 %>%
+  mutate(SZ = toupper(str_trim(SZ)),
+         PA = toupper(str_trim(PA)))
+
+mpsz_pop2024 <- left_join(mpsz19, popdata2024,
+                          by = c("SUBZONE_N" = "SZ"))
+```
+
+`left_join()` is used with the spatial object on the left so that the result is still an `sf` object. Joining the other way round returns a plain tibble with a geometry column that is no longer recognised as geometry, and every subsequent `tm_shape()` call fails.
+
+```{r}
+tibble(
+  metric = c("Subzone polygons",
+             "Polygons with no population record",
+             "Polygons with zero working age population"),
+  n = c(nrow(mpsz_pop2024),
+        sum(is.na(mpsz_pop2024$TOTAL)),
+        sum(mpsz_pop2024$ACTIVE == 0, na.rm = TRUE))
+) %>%
+  kable(caption = "Join diagnostics")
+```
+
+::: {.callout-warning}
+## Checking a join before mapping it
+
+I ran this table before drawing anything, which in hindsight is the single most useful habit in this exercise. A choropleth over a partially failed join looks completely normal. The unmatched areas come out grey and read as missing data rather than as a broken key.
+
+The zero working age rows matter more than they look. Dependency puts `ACTIVE` in the denominator, so a subzone with residents but nobody aged 25 to 64 produces `Inf` rather than a large number. Industrial estates, reservoirs, military areas and port land genuinely have no resident working population, so this is real rather than a data error. Mapping `Inf` shows as an unclassified hole, whereas quietly replacing it with a large number would be inventing data and would also wreck every range based classification scheme further down.
+:::
+
+```{r}
+mpsz_pop2024 <- mpsz_pop2024 %>%
+  mutate(DEPENDENCY = ifelse(is.finite(DEPENDENCY), DEPENDENCY, NA_real_))
+
+summary(mpsz_pop2024$DEPENDENCY)
+```
+
+### The quick map with qtm()
+
+```{r}
+tmap_mode("plot")
+qtm(shp = mpsz_pop2024, fill = "DEPENDENCY")
+```
+
+`tmap_mode("plot")` produces a static image and `"view"` produces an interactive Leaflet map. `qtm()` is fine for looking at my own data while I work. It is not fine for showing anyone else, because there is no title, no source, no scale and no indication of which classification the default happened to pick.
+
+### Building the map from tmap elements
+
+The building block is `tm_shape()`, which sets the data, followed by one or more layer functions that draw from it. `tm_polygons()`, `tm_symbols()`, `tm_lines()`, `tm_raster()` and `tm_text()` are the main ones.
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons()
+```
+
+With no arguments the polygons come out light grey with darker grey borders, which confirms the geometry is there before I put a variable on it.
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "DEPENDENCY")
+```
+
+`tm_polygons()` is a wrapper around `tm_fill()` and `tm_borders()`, and separating them shows what each contributes.
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_fill("DEPENDENCY")
+```
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_fill("DEPENDENCY") +
+  tm_borders()
+```
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_fill("DEPENDENCY") +
+  tm_borders(col = "grey60", lwd = 0.4, lty = "dashed")
+```
+
+`tm_borders()` takes `col` for the border colour, `lwd` for the line width and `lty` for the line type, plus `fill_alpha` for transparency between 0 and 1.
+
+Here is the full version with every element the chapter introduces.
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(style = "quantile",
+                                              n = 5,
+                                              values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Dependency\nratio"),
+              col = "grey65", lwd = 0.3) +
+  tm_title("Age dependency ratio by planning subzone, Singapore 2024") +
+  tm_compass(type = "8star", size = 2, position = c("right", "top")) +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_grid(lwd = 0.1, col = "grey85") +
+  tm_credits("Source: Department of Statistics Singapore, and URA Master Plan 2019 Subzone Boundary",
+             position = c("left", "bottom"), size = 0.55) +
+  tm_layout(frame = TRUE, legend.outside = TRUE)
+```
+
+Each element earns its place for a different reason. `tm_grid()` gives coordinate context, `tm_compass()` and `tm_scalebar()` are the standard cartographic furniture a reader expects, and `tm_credits()` writes the source onto the image itself so that the attribution survives if someone pulls the figure out of this page and drops it into a slide.
+
+### Classification methods
+
+tmap supports ten classification styles, of which `fixed`, `equal`, `pretty`, `quantile`, `jenks`, `sd`, `kmeans`, `hclust`, `bclust` and `fisher` are the named ones. These are not styling choices. Each one makes a different claim about what the reader ought to be noticing.
+
+```{r}
+make_map <- function(style, title) {
+  tm_shape(mpsz_pop2024) +
+    tm_polygons(fill = "DEPENDENCY",
+                fill.scale = tm_scale_intervals(style = style, n = 5,
+                                                values = "brewer.blues"),
+                fill.legend = tm_legend(show = FALSE),
+                col = "grey70", lwd = 0.2) +
+    tm_title(title, size = 0.85)
+}
+
+tmap_arrange(
+  make_map("equal",    "equal, equal value ranges"),
+  make_map("quantile", "quantile, equal counts"),
+  make_map("jenks",    "jenks, natural breaks"),
+  make_map("sd",       "sd, deviation from the mean"),
+  ncol = 2
+)
+```
+
+::: {.callout-important}
+## What the four schemes are each saying
+
+Equal interval cuts the value range into bins of equal width. On a skewed variable this pushes almost everything into the bottom class and the map comes out looking empty.
+
+Quantile puts an equal number of subzones into each class. It always produces a visually balanced map, which is both its strength and its trap, because it looks equally convincing when there is no real variation to show.
+
+Jenks minimises variance within classes and so places breaks at genuine gaps in the distribution. It is usually the most faithful to the data, but because the breaks are derived from the data, two Jenks maps of different datasets cannot be compared with each other.
+
+Standard deviation shows distance from the mean, which is a different question. It answers which areas are unusual rather than how much of the thing there is.
+:::
+
+Rather than assert that the choice matters, I wanted to see where the subzones actually land.
+
+```{r}
+vals <- mpsz_pop2024$DEPENDENCY[is.finite(mpsz_pop2024$DEPENDENCY)]
+
+class_counts <- map_dfr(c("equal", "quantile", "jenks", "sd"), function(st) {
+  brks <- classIntervals(vals, n = 5, style = st)$brks
+  tab  <- table(cut(vals, unique(brks), include.lowest = TRUE))
+  tibble(style     = st,
+         `class 1` = as.integer(tab[1]), `class 2` = as.integer(tab[2]),
+         `class 3` = as.integer(tab[3]), `class 4` = as.integer(tab[4]),
+         `class 5` = as.integer(tab[5]))
+})
+
+kable(class_counts, caption = "How many subzones land in each class")
+```
+
+```{r}
+mpsz_pop2024 %>%
+  st_drop_geometry() %>%
+  filter(is.finite(DEPENDENCY)) %>%
+  arrange(desc(DEPENDENCY)) %>%
+  select(SUBZONE_N, PLN_AREA_N, YOUNG, ACTIVE, AGED, DEPENDENCY) %>%
+  head(5) %>%
+  mutate(DEPENDENCY = round(DEPENDENCY, 2)) %>%
+  kable(caption = "The subzones stretching the top of the range")
+```
+
+::: {.callout-warning}
+## One value can break a whole scheme
+
+The maximum sits far above the median, and it is not a data error. It is a subzone with very few residents whose age mix happens to be lopsided, and a small denominator turns that into a very large ratio.
+
+Equal interval and standard deviation both derive their breaks from the range, so that one subzone stretches the entire scale and everything else falls into the first class. Quantile and Jenks derive their breaks from the ordering and the shape of the distribution instead, so neither of them notices.
+
+The rule I am taking away is that range based classification fails on a variable with outliers. Either use a rank based or distribution based scheme, or handle the outlier explicitly and say in the caption which one was done.
+:::
+
+Then the chapter's exercise on the number of classes.
+
+```{r}
+make_map_n <- function(n) {
+  tm_shape(mpsz_pop2024) +
+    tm_polygons(fill = "DEPENDENCY",
+                fill.scale = tm_scale_intervals(style = "quantile", n = n,
+                                                values = "brewer.blues"),
+                fill.legend = tm_legend(show = FALSE),
+                col = "grey70", lwd = 0.2) +
+    tm_title(paste0("n = ", n), size = 0.85)
+}
+
+tmap_arrange(make_map_n(2), make_map_n(6), make_map_n(10), make_map_n(20),
+             ncol = 2)
+```
+
+At two classes the map is a yes or no statement and most of the variation is thrown away. At twenty the classes are narrower than the reader can distinguish by colour, so the extra classes carry information that does not survive being looked at. Somewhere in between is a number that balances the two, and the first section of Part 3 is an attempt to find it rather than guess it.
+
+#### Custom breaks
+
+For all the built in styles the breakpoints are computed internally. Setting them by hand needs the descriptive statistics first.
+
+```{r}
+summary(mpsz_pop2024$DEPENDENCY)
+```
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(
+                breaks = c(0, 0.60, 0.70, 0.80, 0.90, 1.00),
+                values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Dependency\nratio")) +
+  tm_borders(fill_alpha = 0.5)
+```
+
+The breaks vector includes both a minimum and a maximum, so to end up with five classes I need six values, and they have to be in increasing order. Anything above the top break falls outside the scale and is drawn as missing, which is a real risk on a variable with a long tail.
+
+### Colour scheme
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 5,
+                                              values = "brewer.greens"),
+              fill.legend = tm_legend(title = "Dependency\nratio")) +
+  tm_borders(fill_alpha = 0.5)
+```
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 5,
+                                              values = "-brewer.greens"),
+              fill.legend = tm_legend(title = "Dependency\nratio")) +
+  tm_borders(fill_alpha = 0.5)
+```
+
+The minus prefix reverses the ramp.
+
+::: {.callout-note}
+## Sequential against diverging
+
+A sequential palette says the variable runs from less to more with no meaningful midpoint. A diverging palette says there is a midpoint that means something, and that being on one side of it differs in kind rather than in degree.
+
+For a dependency ratio a diverging scheme can be defended if the midpoint is chosen for a reason, such as the national ratio, because a subzone above the national average and one below it really are in different situations. It cannot be defended if the midpoint is just the middle of the observed range, because that invents a threshold that nothing in the data supports.
+
+The reversed map above shows the other half of the problem. Dark now reads as low dependency, which is the opposite of what almost every reader will assume before reading the legend. The code is correct and the communication is not.
+:::
+
+### Cartographic furniture and layout
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 5),
+              fill.legend = tm_legend(title = "Dependency ratio")) +
+  tm_borders(fill_alpha = 0.5) +
+  tm_compass(type = "8star", size = 2) +
+  tm_scalebar() +
+  tm_grid(lwd = 0.1, alpha = 0.2) +
+  tm_credits("Source: data.gov.sg and SingStat",
+             position = c("left", "bottom"))
+```
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 5,
+                                              values = "-brewer.greens")) +
+  tm_borders(fill_alpha = 0.5) +
+  tmap_style("natural")
+```
+
+```{r}
+tmap_style("white")
+```
+
+`tmap_style()` changes the whole layout preset at once, and it is a global setting, so I reset it immediately afterwards. Forgetting to reset it silently restyles every map further down the document, which took me a while to work out the first time it happened.
+
+### Small multiple maps
+
+Small multiples put several maps side by side so that a relationship can be read across them. tmap offers three routes to the same idea.
+
+#### By assigning several variables
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = c("YOUNG", "AGED"),
+              fill.scale = tm_scale_intervals(style = "equal", n = 5,
+                                              values = "brewer.blues"),
+              fill.legend = tm_legend(position = tm_pos_in("right", "bottom"))) +
+  tm_borders(fill_alpha = 0.5)
+```
+
+#### By arranging separate maps
+
+```{r}
+youngmap <- tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "YOUNG",
+              fill.scale = tm_scale_intervals(style = "quantile",
+                                              values = "brewer.blues"),
+              fill.legend = tm_legend(position = tm_pos_in("right", "bottom"),
+                                      item.height = 0.8)) +
+  tm_borders(fill_alpha = 0.5) +
+  tm_title("Distribution of young population")
+
+agedmap <- tm_shape(mpsz_pop2024) +
+  tm_polygons(fill = "AGED",
+              fill.scale = tm_scale_intervals(style = "quantile",
+                                              values = "brewer.blues"),
+              fill.legend = tm_legend(position = tm_pos_in("right", "bottom"),
+                                      item.height = 0.8)) +
+  tm_borders(fill_alpha = 0.5) +
+  tm_title("Distribution of aged population")
+
+tmap_arrange(youngmap, agedmap, asp = 1, ncol = 2)
+```
+
+The difference between these two routes is that assigning several variables forces a shared scale, while `tmap_arrange()` gives each map its own. A shared scale makes the panels comparable, and separate scales make each panel readable on its own terms. Neither is right in general, and the choice has to follow the question.
+
+#### By faceting on a grouping variable
+
+```{r}
+tm_shape(mpsz_pop2024) +
+  tm_fill(fill = "DEPENDENCY",
+          fill.scale = tm_scale_intervals(style = "quantile",
+                                          values = "brewer.blues")) +
+  tm_facets(by = "REGION_N", nrow = 2, ncols = 3,
+            free.coords = TRUE, drop.units = TRUE) +
+  tm_borders(fill_alpha = 0.5)
+```
+
+`free.coords = TRUE` lets each facet zoom to its own region, which makes the small central region readable but destroys any sense of relative size between the panels.
+
+### Mapping a selected region
+
+```{r}
+mpsz_pop2024 %>%
+  filter(REGION_N == "CENTRAL REGION") %>%
+  tm_shape() +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(style = "quantile",
+                                              values = "brewer.greens"),
+              fill.legend = tm_legend(title = "Dependency\nratio")) +
+  tm_borders(fill_alpha = 0.5)
+```
+
+### Adding a statistical chart
+
+A map is good at spatial relationships and poor at distributions, and a chart is the reverse, so putting one inside the other lets a reader check the shape of the data against its geography without leaving the figure.
+
+```{r}
+mpsz_pop2024 %>%
+  filter(REGION_N == "CENTRAL REGION") %>%
+  tm_shape() +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(style = "quantile",
+                                              values = "brewer.greens"),
+              fill.legend = tm_legend(title = "Dependency\nratio"),
+              fill.chart = tm_chart_box()) +
+  tm_borders() +
+  tm_layout(asp = 0.8)
+```
+
+The next step is to find the outliers the box plot is showing and label them on the map itself, so that the reader can see which subzone each dot belongs to.
+
+```{r}
+region_selected <- mpsz_pop2024 %>%
+  filter(REGION_N == "CENTRAL REGION")
+
+stats <- boxplot.stats(region_selected$DEPENDENCY)
+outlier_sf <- region_selected[region_selected$DEPENDENCY %in% stats$out, ]
+
+tm_shape(region_selected) +
+  tm_polygons(fill = "DEPENDENCY",
+              fill.scale = tm_scale_intervals(style = "quantile",
+                                              values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Dependency\nratio"),
+              fill.chart = tm_chart_box()) +
+  tm_borders(fill_alpha = 0.5) +
+tm_shape(outlier_sf) +
+  tm_borders(col = "red", lwd = 2) +
+  tm_text("SUBZONE_N", col = "red", size = 0.55) +
+  tm_layout(asp = 0.8)
+```
+
+### Interactive maps
+
+```{r}
+region_bbox <- st_bbox(region_selected)
+
+tmap_mode("view")
+
+tm_shape(region_selected, bbox = region_bbox) +
+  tm_fill("DEPENDENCY",
+          id = "SUBZONE_N",
+          popup.vars = c("Name" = "SUBZONE_N",
+                         "Dependency" = "DEPENDENCY")) +
+  tm_borders() +
+  tm_shape(outlier_sf) +
+  tm_borders(col = "red", lwd = 2) +
+  tm_view(set_zoom_limits = c(12, 14))
+```
+
+```{r}
+tmap_mode("plot")
+```
+
+::: {.callout-tip}
+## Why the zoom limits are there
+
+Without `set_zoom_limits` the reader can zoom out until Singapore is a dot in the South China Sea, or in until a single subzone fills the screen with no context around it. Neither view helps, and both are one scroll away.
+
+Constraining the zoom is a small thing, but it is the same kind of decision as picking class breaks. The map author decides what range of views the argument is being made at, and leaving it open is still a decision, just an unexamined one.
+
+The other habit worth keeping is switching the mode back to `"plot"` immediately afterwards. `tmap_mode()` is global, so every map further down the document would otherwise render as an interactive widget, which makes the page heavy and breaks `tmap_arrange()`.
+:::
+
+## Part 3, going further
+
+The chapters make three claims in passing that I wanted to test rather than accept. Each of the sections below picks one and puts a number on it.
+
+### How many classes is enough
+
+The chapter asks me to compare maps at two, six, ten and twenty classes and note what I see. Looking at them tells me the extremes are bad but not where the useful range sits, so I wanted a measure.
+
+The natural one is the goodness of variance fit, which is the quantity Jenks optimises. It compares the squared deviations of the values from their own class means against the squared deviations from the overall mean. A value near one means the classes capture almost all of the variation in the data, and a value near zero means they capture almost none of it.
+
+```{r}
+gvf <- function(x, style, n) {
+  brks <- classIntervals(x, n = n, style = style)$brks
+  cls  <- cut(x, unique(brks), include.lowest = TRUE)
+  sdam <- sum((x - mean(x))^2)
+  sdcm <- sum(tapply(x, cls, function(g) sum((g - mean(g))^2)), na.rm = TRUE)
+  1 - sdcm / sdam
+}
+
+gvf_grid <- expand_grid(style = c("equal", "quantile", "jenks"),
+                        n = 2:10) %>%
+  mutate(gvf = map2_dbl(style, n, ~gvf(vals, .x, .y)))
+
+gvf_grid %>%
+  pivot_wider(names_from = style, values_from = gvf) %>%
+  mutate(across(where(is.numeric), ~round(.x, 3))) %>%
+  kable(caption = "Goodness of variance fit by scheme and number of classes")
+```
+
+```{r}
+ggplot(gvf_grid, aes(x = n, y = gvf, colour = style)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = 2:10) +
+  scale_colour_manual(values = c("equal"    = "#9C4A2F",
+                                 "quantile" = "#6E7F63",
+                                 "jenks"    = "#4A6FA5")) +
+  labs(title = "How much of the variation each classification actually captures",
+       subtitle = "Goodness of variance fit, where one means the class means reproduce the data perfectly",
+       x = "Number of classes", y = "Goodness of variance fit", colour = NULL) +
+  theme_minimal()
+```
+
+::: {.callout-important}
+## What this changes about the choice
+
+Two things stand out.
+
+Jenks reaches a high fit at a small number of classes and then flattens off, which is what it is designed to do. Past the point where the curve levels out, each additional class is subdividing variation the reader was already seeing, at the cost of a colour ramp with more steps than anyone can tell apart.
+
+Equal interval sits well below the other two at every number of classes I tested. That is the outlier problem from Part 2 showing up as a number rather than as a map that looks empty. Adding classes barely helps, because the extra breaks all get spent subdividing a part of the range where no subzones live.
+
+So my answer to how many classes is that it depends on the scheme, and that for this variable the honest range is a small number of Jenks classes rather than the arbitrary five I started with. The reason I trust this more than looking at the four maps is that looking at maps mostly measures how good I am at telling shades of blue apart, which is not a property of the data.
+:::
+
+### Is a subzone boundary a catchment
+
+Counting pre-schools inside a subzone treats the boundary as if it were a wall. In reality a pre-school fifty metres on the other side of the line serves the same children. I wanted to know how much difference that makes, so I recounted using a buffer around each subzone instead of the subzone itself.
+
+```{r}
+sz_buffer_500 <- st_buffer(mpsz14, dist = 500)
+mpsz14$PreSch_500m <- lengths(st_intersects(sz_buffer_500, preschool))
+
+mpsz14 %>%
+  st_drop_geometry() %>%
+  summarise(
+    `Subzones with no pre-school inside the boundary` = sum(PreSch_Count == 0),
+    `Of those, number with at least one within 500 m` =
+      sum(PreSch_Count == 0 & PreSch_500m > 0),
+    `Median count inside the boundary` = median(PreSch_Count),
+    `Median count within 500 m`        = median(PreSch_500m)
+  ) %>%
+  pivot_longer(everything(), names_to = "measure", values_to = "value") %>%
+  kable(caption = "What changes when the boundary is relaxed by 500 metres")
+```
+
+```{r}
+ggplot(mpsz14, aes(x = PreSch_Count, y = PreSch_500m)) +
+  geom_abline(slope = 1, intercept = 0, colour = "grey60", linetype = "dashed") +
+  geom_point(colour = "#9C4A2F", alpha = 0.6) +
+  labs(title = "Counting inside the boundary understates provision everywhere",
+       subtitle = "The dashed line is where the two counts would be equal, and no subzone sits on it",
+       x = "Pre-schools inside the subzone",
+       y = "Pre-schools within 500 metres of the subzone") +
+  theme_minimal()
+```
+
+```{r}
+mpsz14 %>%
+  st_drop_geometry() %>%
+  filter(PreSch_Count == 0, PreSch_500m > 0) %>%
+  arrange(desc(PreSch_500m)) %>%
+  select(SUBZONE_N, PLN_AREA_N, PreSch_Count, PreSch_500m) %>%
+  head(10) %>%
+  kable(caption = "Subzones that look unserved on the first map but are not")
+```
+
+::: {.callout-warning}
+## What the gap means and what it does not
+
+Every point sits above the equality line, which has to be true since the buffer contains the subzone. The interesting number is how many subzones move from zero to non zero, because those are exactly the ones a reader of the first map would have taken to be unserved.
+
+The buffered count is not a better measure though, only a differently wrong one. It double counts, since a pre-school near a corner falls inside the buffers of several neighbouring subzones at once, so summing the buffered counts across Singapore would give a total far above the number of pre-schools that actually exist. Five hundred metres is also a number I chose rather than derived, and the real catchment of a pre-school depends on how families travel to it.
+
+What this does establish is that a point in polygon count describes the boundary as much as it describes the provision, and that any statement of the form this subzone has no pre-school needs the words within its boundary attached to it. The proper version of this question is a distance based accessibility measure, which comes later in the course.
+:::
+
+### Does the answer change when the boundaries change
+
+Part 1 uses the 2014 boundary definition and Part 2 uses the 2019 one, because that is what the two chapters specify. That leaves me with two versions of the same geography five years apart, and a chance to check how stable a subzone level result is when the units get redrawn.
+
+```{r}
+mpsz19_counts <- mpsz19 %>%
+  mutate(PreSch_Count   = lengths(st_intersects(., preschool)),
+         Area_sqkm      = as.numeric(set_units(st_area(.), "km^2")),
+         PreSch_Density = PreSch_Count / Area_sqkm) %>%
+  st_drop_geometry() %>%
+  select(SUBZONE_N,
+         PreSch_Count_19   = PreSch_Count,
+         PreSch_Density_19 = PreSch_Density)
+
+mpsz14_counts <- mpsz14 %>%
+  st_drop_geometry() %>%
+  select(SUBZONE_N,
+         PreSch_Count_14   = PreSch_Count,
+         PreSch_Density_14 = PreSch_Density)
+
+vintage <- inner_join(mpsz14_counts, mpsz19_counts, by = "SUBZONE_N")
+
+tibble(
+  measure = c("Subzones in the 2014 file",
+              "Subzones in the 2019 file",
+              "Names present in both",
+              "Names only in 2014",
+              "Names only in 2019"),
+  n = c(nrow(mpsz14_counts), nrow(mpsz19_counts), nrow(vintage),
+        length(setdiff(mpsz14_counts$SUBZONE_N, mpsz19_counts$SUBZONE_N)),
+        length(setdiff(mpsz19_counts$SUBZONE_N, mpsz14_counts$SUBZONE_N)))
+) %>%
+  kable(caption = "How much the subzone list itself changed between the two vintages")
+```
+
+```{r}
+vintage %>%
+  summarise(
+    `Correlation of counts`             = cor(PreSch_Count_14, PreSch_Count_19),
+    `Correlation of densities`          = cor(PreSch_Density_14, PreSch_Density_19),
+    `Subzones where the count differs`  = sum(PreSch_Count_14 != PreSch_Count_19),
+    `Largest change in count`           = max(abs(PreSch_Count_14 - PreSch_Count_19))
+  ) %>%
+  pivot_longer(everything(), names_to = "measure", values_to = "value") %>%
+  mutate(value = round(value, 3)) %>%
+  kable(caption = "The same pre-schools counted against two boundary vintages")
+```
+
+```{r}
+vintage %>%
+  mutate(diff = PreSch_Count_19 - PreSch_Count_14) %>%
+  filter(diff != 0) %>%
+  arrange(desc(abs(diff))) %>%
+  select(SUBZONE_N, PreSch_Count_14, PreSch_Count_19, diff) %>%
+  head(10) %>%
+  kable(caption = "Subzones where the count moved most between vintages")
+```
+
+::: {.callout-important}
+## Two units are not one unit measured twice
+
+The pre-school locations are identical in both calculations. Every difference in the table above comes from the boundaries being drawn in a different place, which is the modifiable areal unit problem in its clearest form.
+
+The correlations are high, which is reassuring for any statement about the broad pattern. The per subzone differences are not zero though, and a claim about one named subzone is only as stable as the boundary that defines it.
+
+There is a second and quieter problem here, which is that the two vintages do not even agree on which subzones exist. Some names appear in one file and not the other, so those rows dropped out of the comparison entirely rather than showing up as a difference. That is worse than a difference, because it is invisible in any table that only compares the matched rows.
+
+The practical consequence for this document is that Part 1 and Part 2 are measured on slightly different geographies, and nothing in the exercise itself flags that. I would not put a Part 1 figure and a Part 2 figure in the same sentence without saying so.
+:::
+
+## Limitations
+
+The pre-school counts and the population figures come from different boundary vintages, 2014 and 2019, since that is what the two chapters specify. The section above measures how much that matters rather than fixing it.
+
+The dependency ratio follows the chapter's definition, where young runs to 24 and active starts at 25. The more common international convention puts the split at 15. With high tertiary participation in Singapore the chapter's version is arguably the better description, but it is a convention either way, and the ratio here is not comparable to figures computed the other way.
+
+Subzones with residents but no working age residents were set to `NA` and drop out of every map. There are not many, and they are dropped rather than shown as zero, which is a choice that leaves small holes in the map.
+
+The buffer analysis in Part 3 uses a 500 metre radius that I picked because it is a plausible walking distance, not because anything in the data supports it. A different radius would give different numbers, and I have not tested how sensitive the conclusion is to that choice.
+
+Nothing in this exercise tests whether the spatial patterns are real. Every map here could look much the same if the values had been assigned to subzones at random, and I have no way yet to tell the difference. That is what the spatial weights and autocorrelation topics later in the course are for.
+
+## Reflection
+
+Most of the mechanics here were familiar. Reading files, joining tables and drawing charts are the same operations I already know, under different function names. Three things were genuinely new.
+
+The first is that the coordinate reference system is a correctness problem rather than a formatting one. The distinction between `st_set_crs()` and `st_transform()` has no real equivalent in ordinary data work, and getting it wrong produces no error, no warning, and a perfectly plausible looking number that happens to be wrong by five orders of magnitude.
+
+The second is that classification is a decision I make whether or not I think about it. Accepting the `qtm()` default is still choosing something. Computing the goodness of variance fit was the most useful thing I did in Part 3, because it turned a vague instruction to compare the maps into a number I could act on.
+
+The third is how much of the work turned out to be checking rather than analysing. The join diagnostics, the `Inf` handling, the buffer overlap correction and the boundary vintage comparison are none of them in the chapters, and each one was a place where I could have produced a wrong answer that looked completely reasonable. If I did this again I would run the join diagnostic before drawing the first map rather than after it, because I had already made a choropleth over data I had not verified, and it looked fine.
+
+## About this document
+
+Written in Quarto and executed in R. Every figure and table on this page is generated at render time from the files in `data/`, so nothing here is pasted in from elsewhere.
+
+```{r}
+sessionInfo()
+```

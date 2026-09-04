@@ -1,0 +1,938 @@
+---
+title: "Hands-on Exercise 02: Spatial Point Patterns Analysis"
+author: "Meng Tingyu"
+date: "last-modified"
+date-format: "DD MMM YYYY"
+execute:
+  warning: false
+  message: false
+---
+
+## Overview
+
+The first exercise was about getting data into a usable state and drawing it. This one is about asking whether what the drawing shows is real.
+
+Two questions run through the whole thing. Are childcare centres in Singapore randomly distributed, and if they are not, where are the concentrations. The first question sounds trivial and is not, because answering it properly means saying what random would have looked like, and that turns out to be the hardest decision in the exercise.
+
+Part 1 assembles the analytical sandbox and converts the data into the object classes that spatstat needs. Part 2 covers first order analysis, which is about intensity, so nearest neighbour testing and kernel density estimation. Part 3 repeats the analysis at planning area level for four towns. Part 4 covers second order analysis with the G, F, K and L functions, which are about the relationships between points rather than their density.
+
+Part 5 is my own. Three of the choices the chapters make quietly turn out to change the answer, and I wanted to measure by how much rather than take them on trust.
+
+::: {.callout-note}
+## Reference
+
+Chapter 4, First-order Spatial Point Patterns Analysis Methods, and Chapter 5, 2nd Order Spatial Point Patterns Analysis Methods, from the course reference guide.
+:::
+
+## Getting started
+
+```{r}
+pacman::p_load(sf, spatstat, terra, tmap, tidyverse, knitr)
+```
+
+```{r}
+set.seed(1234)
+```
+
+The seed goes near the top rather than buried next to the first simulation. Every Monte Carlo result below depends on it, and having it in one visible place is the difference between a document that reruns identically and one that does not.
+
+`spatstat` is worth a word because it is not one package. Installing it pulls in `spatstat.geom` for the object classes and geometry, `spatstat.explore` for the exploratory tools including the Clark-Evans test and the G, F, K and L functions, `spatstat.model` for fitting, and several more. Loading `spatstat` loads the family. This matters when reading the documentation, since the help pages live under the sub-package names.
+
+`terra` appears only at the end of the first order section, where it converts a spatstat pixel image into a raster that tmap can draw properly.
+
+::: {.callout-note}
+## What I did not need
+
+The chapter loads `rvest` to pull attribute fields out of an HTML fragment. That step is needed when the subzone boundary comes in as KML, where the attribute table has been flattened into a description bubble. I am reusing the GeoJSON I downloaded for the first exercise, which keeps `SUBZONE_N`, `PLN_AREA_N` and `REGION_N` as proper typed columns, so there is nothing to parse and `rvest` never comes into it.
+
+This is the same difference between presentation formats and analysis formats that I measured in the first exercise when I wrote a layer out to KML and read it back. It is nice to see the cost show up again as work I did not have to do.
+:::
+
+## Data provenance
+
+| Dataset | Source | Format | Native CRS |
+|---|---|---|---|
+| Child Care Services | data.gov.sg, ECDA | GeoJSON | WGS84, EPSG:4326 |
+| Master Plan 2019 Subzone Boundary (No Sea) | data.gov.sg, URA | GeoJSON | WGS84, EPSG:4326 |
+| Residents by subzone, age group, sex and dwelling type | Department of Statistics | CSV | none, subzone name as key |
+
+The subzone boundary and the population table are the same files I used in the first exercise. The population table only appears in Part 5, where I needed a denominator of children rather than of land.
+
+## Part 1, assembling the analytical sandbox
+
+### Importing the subzone boundary
+
+```{r}
+mpsz_sf <- st_read("data/geospatial/MasterPlan2019SubzoneBoundaryNoSea.geojson") %>%
+  st_zm(drop = TRUE, what = "ZM") %>%
+  st_transform(crs = 3414)
+```
+
+```{r}
+st_crs(mpsz_sf)$input
+st_bbox(mpsz_sf)
+```
+
+::: {.callout-tip}
+## Why st_zm() is here
+
+Singapore geospatial files often carry a Z dimension holding an elevation that is zero for every feature, left over from the KML lineage of the data. It is harmless in sf, where it simply shows up as `XYZ` in the geometry type.
+
+It is not harmless in spatstat. A planar point pattern is planar, and `as.ppp()` on a three dimensional geometry either errors or silently drops the third value depending on the version. Dropping it explicitly here means the conversion later has nothing to complain about.
+
+The `what = "ZM"` argument removes both Z and M, where M is a measure dimension used for things like distance along a route. Neither carries information in this data.
+:::
+
+### Removing the offshore islands
+
+```{r}
+mpsz_cl <- mpsz_sf %>%
+  filter(SUBZONE_N != "SOUTHERN GROUP",
+         PLN_AREA_N != "WESTERN ISLANDS",
+         PLN_AREA_N != "NORTH-EASTERN ISLANDS")
+
+tibble(
+  stage = c("All subzones", "After removing offshore islands", "Removed"),
+  n = c(nrow(mpsz_sf), nrow(mpsz_cl), nrow(mpsz_sf) - nrow(mpsz_cl))
+) %>%
+  kable(caption = "Subzones kept for the analysis window")
+```
+
+::: {.callout-important}
+## Why the islands have to go, and what it costs
+
+The chapter drops these three groups without saying why, and the reason turns out to be central to everything that follows.
+
+Every test in this document compares the observed pattern against a null in which points are scattered uniformly at random over an observation window. That window is the study area. Leaving Pulau Ubin, the Southern Islands and the Western Islands in the window means the null model expects childcare centres to be spread across water and across islands with almost no residents. Against a null that unrealistic, any real settlement pattern comes out clustered, and the test stops being informative.
+
+The cost is that I have now made a decision that shapes the answer. A smaller and more realistic window makes the null harder to reject, which is the honest direction to err in, but the window is still mine rather than the data's. Part 5 measures how much the choice matters.
+:::
+
+```{r}
+plot(st_geometry(mpsz_cl))
+```
+
+### Importing the childcare centres
+
+```{r}
+childcare_sf <- st_read("data/geospatial/ChildCareServices.geojson") %>%
+  st_zm(drop = TRUE, what = "ZM") %>%
+  st_transform(crs = 3414)
+```
+
+```{r}
+st_crs(childcare_sf)$input
+st_bbox(childcare_sf)
+```
+
+Both layers now report SVY21 and their bounding boxes are in the same numeric range, which is the check that the two are actually in the same spatial context rather than merely both claiming to be.
+
+### Mapping the two layers together
+
+```{r}
+tmap_mode("plot")
+
+tm_shape(mpsz_cl) +
+  tm_polygons(fill = "grey95", col = "grey60", lwd = 0.3) +
+tm_shape(childcare_sf) +
+  tm_dots(size = 0.04, fill = "#9C4A2F") +
+  tm_title("Childcare centres and planning subzones") +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_compass(type = "8star", size = 2, position = c("right", "top")) +
+  tm_credits("Source: ECDA and URA, via data.gov.sg",
+             position = c("left", "bottom"), size = 0.55)
+```
+
+The points fall inside the polygons, which confirms the two layers share a coordinate system. This sounds like a formality and is the check that would have caught a wrong projection before any statistics were computed on top of it.
+
+```{r}
+tmap_mode("view")
+
+tm_shape(childcare_sf) +
+  tm_dots()
+```
+
+```{r}
+tmap_mode("plot")
+```
+
+The interactive version is useful for a different reason. Zooming in shows that centres cluster along HDB estate spines and thin out over industrial land and reservoirs, which is the pattern the statistics will later confirm, and seeing it first makes the numbers easier to trust.
+
+::: {.callout-warning}
+## Interactive maps are not free
+
+Each interactive map holds an open connection and embeds a full Leaflet widget in the page. More than a handful in one document makes the html heavy and slow to load. I use two in this exercise and switch back to plot mode straight after each.
+
+The bigger risk is forgetting the switch. `tmap_mode()` is global, so an unclosed view mode turns every later map into a widget, including the small multiples, which then fail to arrange.
+:::
+
+## Part 2, converting to spatstat classes
+
+spatstat does not work with sf. It has its own object classes, `ppp` for a planar point pattern and `owin` for the observation window, and getting the data into them cleanly is most of the work in this section.
+
+### Creating the ppp object
+
+```{r}
+childcare_ppp <- as.ppp(childcare_sf)
+class(childcare_ppp)
+```
+
+```{r}
+summary(childcare_ppp)
+```
+
+The summary reports the object as a marked point pattern, because the two attribute columns from the GeoJSON came across as marks. That is not what I want here. Every test below is about where the points are and none of them is about what the points are, and marks make `envelope()` harder to reason about because the simulated patterns have to decide what to do with them.
+
+```{r}
+childcare_ppp <- unmark(childcare_ppp)
+summary(childcare_ppp)
+```
+
+### Checking for duplicated points
+
+```{r}
+any(duplicated(childcare_ppp))
+sum(multiplicity(childcare_ppp) > 1)
+```
+
+::: {.callout-important}
+## Coincident points break the distance functions
+
+This check is not in the chapter and it needs to be, because several childcare centres in Singapore share an address. Two centres in the same HDB block, or on different floors of the same building, geocode to exactly the same coordinate pair.
+
+A pattern with coincident points is not a valid input to the nearest neighbour machinery. The distance from one of a coincident pair to its nearest neighbour is zero, which pushes the G function up at r equal to zero and drags the Clark-Evans R statistic down. Both effects say clustered, and both are artefacts of the geocoding rather than facts about where childcare centres are.
+
+`spatstat` will warn about this when the K and L functions run. Fixing it first is better than reading past the warning.
+:::
+
+```{r}
+childcare_ppp_jit <- rjitter(childcare_ppp,
+                             retry = TRUE,
+                             nsim = 1,
+                             drop = TRUE)
+
+any(duplicated(childcare_ppp_jit))
+```
+
+Jittering moves each point by a small random amount, which separates the coincident ones without meaningfully changing the pattern at the scales this analysis looks at. The alternative is to drop duplicates, which would understate provision in exactly the dense areas the analysis is about. Jittering keeps the count honest and I have recorded that I did it.
+
+### Creating the owin object
+
+```{r}
+sg_owin <- as.owin(mpsz_cl)
+class(sg_owin)
+```
+
+```{r}
+plot(sg_owin)
+```
+
+### Combining the points and the window
+
+```{r}
+childcareSG_ppp <- childcare_ppp_jit[sg_owin]
+childcareSG_ppp
+```
+
+```{r}
+tibble(
+  stage = c("Points in the raw layer",
+            "Points inside the study window",
+            "Points dropped"),
+  n = c(npoints(childcare_ppp),
+        npoints(childcareSG_ppp),
+        npoints(childcare_ppp) - npoints(childcareSG_ppp))
+) %>%
+  kable(caption = "What the window clipping removed")
+```
+
+The subsetting operator does the clipping, keeping only the points that fall inside the window. Anything on the offshore islands is now gone, which is consistent with having removed those islands from the window in the first place. Checking how many points were dropped is worth the extra line, because a large number here would mean the window was wrong rather than that the islands are empty.
+
+### Rescaling to kilometres
+
+```{r}
+childcareSG_ppp_km <- rescale.ppp(childcareSG_ppp, 1000, "km")
+```
+
+::: {.callout-tip}
+## Why the units matter for readability
+
+SVY21 is in metres, so an intensity computed on the unscaled pattern comes out as points per square metre, and the numbers land somewhere around ten to the minus six. Those are correct and unreadable.
+
+Rescaling to kilometres does not change anything about the pattern. It multiplies the coordinates by a constant, so every distance based statistic that is scale invariant, including the Clark-Evans R, comes out identical. What changes is that the density map legend now reads in centres per square kilometre, which is a number a person can hold in their head.
+:::
+
+## Part 3, first order analysis
+
+First order analysis is about intensity, meaning how many points there are per unit area and how that varies over space. It treats each point as independent of the others and asks only where they are dense.
+
+### Clark-Evans test without edge correction
+
+The Clark-Evans index R compares the observed mean nearest neighbour distance against what would be expected under complete spatial randomness. R below one means points are closer together than random, so clustered. R above one means more evenly spaced than random, so dispersed. R near one means the pattern is indistinguishable from random.
+
+The hypotheses are as follows.
+
+H0, the distribution of childcare services is random.
+
+H1, the distribution of childcare services is not random.
+
+I test at the 95 percent confidence level.
+
+```{r}
+ce_none <- clarkevans.test(childcareSG_ppp,
+                           correction = "none",
+                           alternative = "clustered")
+ce_none
+```
+
+::: {.callout-warning}
+## One argument I changed
+
+The chapter passes `clipregion = "sg_owin"` with the window name in quotes. That is a character string rather than the window object, and the guard correction it is meant to enable is not active in this call anyway because `correction = "none"`. I left it out rather than pass an argument that does nothing, and Part 5 comes back to what happens when the edge correction is actually turned on.
+:::
+
+**Statistical conclusion.** R comes out well below one and the p value is far below 0.05, so I reject the null hypothesis. The mean nearest neighbour distance between childcare centres is substantially shorter than complete spatial randomness over this window would produce. The pattern is clustered.
+
+**What this means in plain terms.** Childcare centres in Singapore are not spread evenly across the island. They sit in tight groups, and the groups have large gaps between them. For a planner deciding where a new centre should go, the useful reading is that the existing network has a structure worth understanding rather than a uniform blanket to top up. The next section finds where the groups are.
+
+### Clark-Evans test with a Monte Carlo null
+
+```{r}
+ce_mc <- clarkevans.test(childcareSG_ppp,
+                         correction = "none",
+                         alternative = "clustered",
+                         method = "MonteCarlo",
+                         nsim = 999)
+ce_mc
+```
+
+The R statistic is identical because it is computed from the same data. What changed is how the p value was obtained. The first test compared R against a theoretical normal approximation. This one generated 999 random patterns with the same number of points inside the same window, computed R for each, and asked where the observed R falls among them.
+
+::: {.callout-important}
+## Why 999 and not 99
+
+The Monte Carlo p value is the rank of the observed statistic among the simulations, specifically the number of simulated values at least as extreme, plus one, divided by the number of simulations plus one.
+
+With 99 simulations the smallest p value obtainable is one over one hundred, which is 0.01. With 999 it is 0.001. So the number of simulations sets a floor on the p value, and choosing nsim decides in advance what significance levels the test is even capable of reporting. The second order section below rejects at 0.001, which is only possible with at least 999 simulations.
+
+This is a case where a number that looks like a performance setting is actually part of the test definition.
+:::
+
+### Kernel density estimation with automatic bandwidth
+
+The Clark-Evans test says the pattern is clustered. It does not say where. Kernel density estimation answers that by turning the discrete points into a continuous surface, placing a small hill over each point and adding them up.
+
+```{r}
+kde_diggle <- density(childcareSG_ppp_km,
+                      sigma = bw.diggle,
+                      edge = TRUE,
+                      kernel = "gaussian")
+
+plot(kde_diggle, main = "KDE with bw.diggle, centres per square kilometre")
+```
+
+```{r}
+summary(kde_diggle)
+```
+
+```{r}
+bw_diggle_val <- bw.diggle(childcareSG_ppp_km)
+bw_diggle_val
+```
+
+The bandwidth is the width of the hill placed over each point, and it controls everything about how the surface looks. A narrow bandwidth produces a spiky surface that is close to the raw points. A wide one produces a smooth surface that may have merged genuinely separate clusters into one blob.
+
+The `edge = TRUE` argument corrects for the fact that a point near the boundary has part of its hill falling outside the window, which without correction would make the edges of the study area look artificially sparse.
+
+### Comparing the automatic bandwidth selectors
+
+```{r}
+bw_table <- tibble(
+  method = c("bw.CvL", "bw.scott (x)", "bw.scott (y)", "bw.ppl", "bw.diggle"),
+  sigma_km = c(as.numeric(bw.CvL(childcareSG_ppp_km)),
+               as.numeric(bw.scott(childcareSG_ppp_km))[1],
+               as.numeric(bw.scott(childcareSG_ppp_km))[2],
+               as.numeric(bw.ppl(childcareSG_ppp_km)),
+               as.numeric(bw.diggle(childcareSG_ppp_km)))
+) %>%
+  mutate(sigma_m = round(sigma_km * 1000), sigma_km = round(sigma_km, 3))
+
+kable(bw_table, caption = "Bandwidth chosen by each automatic method")
+```
+
+::: {.callout-important}
+## The methods disagree by more than an order of magnitude
+
+That spread is the whole problem with kernel density estimation stated as a number. These are all automatic, all defensible, and they do not agree.
+
+The reason is that each optimises a different thing. `bw.CvL` uses Cronie and van Lieshout's criterion, which targets the total intensity and tends to oversmooth badly on clustered data. `bw.scott` uses a rule of thumb derived from the normal distribution, which is fast and assumes a shape this data does not have. `bw.ppl` maximises a likelihood cross validation criterion. `bw.diggle` minimises a mean square error criterion.
+
+Baddeley and colleagues suggest `bw.ppl` when the pattern is made of tight clusters, and `bw.diggle` when the goal is finding one tight cluster inside noise. This is a clustered pattern with many clusters, so `bw.ppl` is the better fit for the question, and the chapter's use of `bw.diggle` produces a considerably spikier surface.
+
+Part 5 puts a number on how much the choice changes the answer.
+:::
+
+```{r}
+kde_ppl <- density(childcareSG_ppp_km,
+                   sigma = bw.ppl,
+                   edge = TRUE,
+                   kernel = "gaussian")
+
+par(mfrow = c(1, 2))
+plot(kde_diggle, main = "bw.diggle")
+plot(kde_ppl, main = "bw.ppl")
+```
+
+### Comparing the kernel functions
+
+```{r}
+par(mfrow = c(2, 2))
+plot(density(childcareSG_ppp_km, sigma = bw_diggle_val,
+             edge = TRUE, kernel = "gaussian"), main = "Gaussian")
+plot(density(childcareSG_ppp_km, sigma = bw_diggle_val,
+             edge = TRUE, kernel = "epanechnikov"), main = "Epanechnikov")
+plot(density(childcareSG_ppp_km, sigma = bw_diggle_val,
+             edge = TRUE, kernel = "quartic"), main = "Quartic")
+plot(density(childcareSG_ppp_km, sigma = bw_diggle_val,
+             edge = TRUE, kernel = "disc"), main = "Disc")
+```
+
+The four surfaces are close to identical. That is the expected result and it is worth stating, because it means the kernel shape is a far less consequential choice than the bandwidth. The kernel decides how the weight falls away with distance and the bandwidth decides over what distance, and only the second one changes the picture.
+
+### Fixed against adaptive bandwidth
+
+```{r}
+kde_fixed <- density(childcareSG_ppp_km,
+                     sigma = 0.6,
+                     edge = TRUE,
+                     kernel = "gaussian")
+
+plot(kde_fixed, main = "Fixed bandwidth, 600 metres")
+```
+
+The sigma is 0.6 rather than 600 because the pattern is in kilometres. Passing 600 here would ask for a 600 kilometre bandwidth, which would smooth the whole of Singapore into a single flat value, and it would not error.
+
+```{r}
+kde_adaptive <- adaptive.density(childcareSG_ppp_km, method = "kernel")
+plot(kde_adaptive, main = "Adaptive bandwidth")
+```
+
+```{r}
+par(mfrow = c(1, 2))
+plot(kde_fixed, main = "Fixed bandwidth")
+plot(kde_adaptive, main = "Adaptive bandwidth")
+```
+
+::: {.callout-tip}
+## When adaptive is the right choice
+
+A fixed bandwidth applies the same amount of smoothing everywhere. On a pattern that is dense in some places and sparse in others, that single number cannot be right in both, and it undersmooths the sparse regions while oversmoothing the dense ones.
+
+An adaptive bandwidth varies the smoothing locally, narrow where points are dense and wide where they are sparse. For Singapore, where mature estates hold many centres within a few hundred metres and industrial areas hold almost none, this fits the data better.
+
+The cost is interpretability. With a fixed bandwidth I can state what spatial scale the map represents. With an adaptive one the scale varies across the image, so two areas that look equally smooth are not necessarily comparable.
+:::
+
+### A cartographic quality density map
+
+```{r}
+kde_terra <- rast(density(childcareSG_ppp,
+                          sigma = bw.ppl,
+                          edge = TRUE,
+                          kernel = "gaussian"))
+class(kde_terra)
+```
+
+```{r}
+crs(kde_terra) <- "EPSG:3414"
+kde_terra
+```
+
+The raster arrives from spatstat with no coordinate reference system, because a spatstat image is just a grid of numbers over an abstract window and carries no notion of where on Earth it sits. Assigning EPSG:3414 puts it back into a spatial context so that tmap can draw it alongside the boundaries.
+
+```{r}
+tm_shape(kde_terra) +
+  tm_raster(col.scale = tm_scale_continuous(values = "viridis"),
+            col.legend = tm_legend(title = "Centres per\nsquare km",
+                                   title.size = 0.7,
+                                   text.size = 0.7,
+                                   bg.color = "white",
+                                   bg.alpha = 0.7,
+                                   position = tm_pos_in("right", "bottom"),
+                                   frame = TRUE)) +
+  tm_shape(mpsz_cl) +
+  tm_borders(col = "white", lwd = 0.3) +
+  tm_graticules(labels.size = 0.7) +
+  tm_compass(position = c("right", "top")) +
+  tm_title("Childcare centre density, Singapore") +
+  tm_layout(scale = 1.0)
+```
+
+**Where the concentrations are.** The bright areas correspond to the mature and newer HDB towns rather than to the city centre. That is the opposite of what a naive expectation would give, since the central business district is the densest part of Singapore by almost any other measure. It is dense in offices rather than in families, and childcare provision follows children rather than floor space. The dark areas are the industrial west, the central catchment reservoirs and the airport, which have no resident children to serve.
+
+## Part 4, analysis at the planning area level
+
+The island level analysis says the pattern is clustered and shows where the clusters are. It does not say whether the pattern inside a cluster is itself clustered, which is a different question and needs a smaller window.
+
+### Extracting four planning areas
+
+```{r}
+pg <- mpsz_cl %>% filter(PLN_AREA_N == "PUNGGOL")
+tm_area <- mpsz_cl %>% filter(PLN_AREA_N == "TAMPINES")
+ck <- mpsz_cl %>% filter(PLN_AREA_N == "CHOA CHU KANG")
+jw <- mpsz_cl %>% filter(PLN_AREA_N == "JURONG WEST")
+
+par(mfrow = c(2, 2))
+plot(st_geometry(pg), main = "Punggol")
+plot(st_geometry(tm_area), main = "Tampines")
+plot(st_geometry(ck), main = "Choa Chu Kang")
+plot(st_geometry(jw), main = "Jurong West")
+```
+
+### Creating windows and clipping the points
+
+```{r}
+pg_owin <- as.owin(pg)
+tm_owin <- as.owin(tm_area)
+ck_owin <- as.owin(ck)
+jw_owin <- as.owin(jw)
+
+childcare_pg_ppp <- childcare_ppp_jit[pg_owin]
+childcare_tm_ppp <- childcare_ppp_jit[tm_owin]
+childcare_ck_ppp <- childcare_ppp_jit[ck_owin]
+childcare_jw_ppp <- childcare_ppp_jit[jw_owin]
+```
+
+```{r}
+tibble(
+  area = c("Punggol", "Tampines", "Choa Chu Kang", "Jurong West"),
+  centres = c(npoints(childcare_pg_ppp), npoints(childcare_tm_ppp),
+              npoints(childcare_ck_ppp), npoints(childcare_jw_ppp)),
+  area_sqkm = round(c(area.owin(pg_owin), area.owin(tm_owin),
+                      area.owin(ck_owin), area.owin(jw_owin)) / 1e6, 2)
+) %>%
+  mutate(per_sqkm = round(centres / area_sqkm, 2)) %>%
+  kable(caption = "Childcare centres in the four study areas")
+```
+
+```{r}
+childcare_pg_km <- rescale.ppp(childcare_pg_ppp, 1000, "km")
+childcare_tm_km <- rescale.ppp(childcare_tm_ppp, 1000, "km")
+childcare_ck_km <- rescale.ppp(childcare_ck_ppp, 1000, "km")
+childcare_jw_km <- rescale.ppp(childcare_jw_ppp, 1000, "km")
+
+par(mfrow = c(2, 2))
+plot(childcare_pg_km, main = "Punggol")
+plot(childcare_tm_km, main = "Tampines")
+plot(childcare_ck_km, main = "Choa Chu Kang")
+plot(childcare_jw_km, main = "Jurong West")
+```
+
+### Clark-Evans by planning area
+
+```{r}
+ce_by_area <- map_dfr(
+  list(Punggol = childcare_pg_ppp,
+       Tampines = childcare_tm_ppp,
+       `Choa Chu Kang` = childcare_ck_ppp,
+       `Jurong West` = childcare_jw_ppp),
+  function(p) {
+    tst <- clarkevans.test(p, correction = "none",
+                           alternative = "two.sided", nsim = 999)
+    tibble(n = npoints(p),
+           R = round(as.numeric(tst$statistic), 4),
+           p_value = signif(tst$p.value, 3))
+  },
+  .id = "area"
+)
+
+kable(ce_by_area, caption = "Clark-Evans index by planning area, two sided test")
+```
+
+::: {.callout-important}
+## Clustered at every scale, but not equally
+
+Every area returns an R below one, so the pattern is clustered inside each town as well as across the island. That is not a foregone conclusion. A perfectly regular grid of centres inside each town would have produced R near or above one here while still giving a strongly clustered island level result, because the island level clustering comes from the gaps between towns.
+
+The differences between towns are the interesting part. A lower R means tighter clustering, and the towns are not alike. Reading this alongside the counts in the table above matters, because R on a small number of points is a noisy statistic, and a town with few centres can produce an extreme R without much evidence behind it.
+
+I have used a two sided alternative here rather than the one sided clustered alternative used at island level. At island level I had a clear prior expectation from the map. Inside a single town I did not, and testing one sided against an expectation formed after seeing the data would be circular.
+:::
+
+### Density surfaces by planning area
+
+```{r}
+par(mfrow = c(2, 2))
+plot(density(childcare_pg_km, sigma = bw.diggle, edge = TRUE,
+             kernel = "gaussian"), main = "Punggol")
+plot(density(childcare_tm_km, sigma = bw.diggle, edge = TRUE,
+             kernel = "gaussian"), main = "Tampines")
+plot(density(childcare_ck_km, sigma = bw.diggle, edge = TRUE,
+             kernel = "gaussian"), main = "Choa Chu Kang")
+plot(density(childcare_jw_km, sigma = bw.diggle, edge = TRUE,
+             kernel = "gaussian"), main = "Jurong West")
+```
+
+Each panel picks its own bandwidth and its own colour scale, so the four are not comparable to each other. They show the internal structure of each town, which is what they are for, and any statement comparing one town's density to another's would need a shared scale.
+
+## Part 5, second order analysis
+
+First order analysis asks how many points there are per unit area. Second order analysis asks whether the presence of one point makes another point nearby more or less likely, and at what distance that effect operates. The four summary functions below each measure a different aspect of that.
+
+For each function the interpretation follows the same shape. The observed curve is compared against the theoretical curve under complete spatial randomness. Above the theoretical line means clustered, below means dispersed. Because a single observed curve could deviate by chance, each is accompanied by a Monte Carlo envelope built from simulated random patterns, and only excursions outside the envelope count as evidence.
+
+::: {.callout-warning}
+## This section is slow
+
+The envelope calls below generate 999 random patterns each and compute the summary function on every one. Several minutes per call is normal. Quarto's freeze cache means this only happens on the first render, but the first render does take a while, and interrupting it halfway leaves the cache in a state that has to be cleared before trying again.
+:::
+
+### The G function
+
+The G function measures the distribution of distances from each point to its nearest neighbour. Clustering pushes short distances up, so a G curve above the theoretical line means points have closer neighbours than random.
+
+#### Choa Chu Kang
+
+```{r}
+G_ck <- Gest(childcare_ck_ppp, correction = "border")
+plot(G_ck, xlim = c(0, 500))
+```
+
+H0, childcare services in Choa Chu Kang are randomly distributed.
+
+H1, childcare services in Choa Chu Kang are not randomly distributed.
+
+I reject the null if the p value is below 0.001, which is why the envelope uses 999 simulations.
+
+```{r}
+G_ck_csr <- envelope(childcare_ck_ppp, Gest, nsim = 999, verbose = FALSE)
+plot(G_ck_csr)
+```
+
+The observed curve rises above the upper envelope over the short distance range, so I reject the null. Childcare centres in Choa Chu Kang have nearer neighbours than complete spatial randomness would produce, and the effect is concentrated at short distances rather than spread across the whole range.
+
+#### Tampines
+
+```{r}
+G_tm <- Gest(childcare_tm_ppp, correction = "best")
+plot(G_tm)
+```
+
+```{r}
+G_tm_csr <- envelope(childcare_tm_ppp, Gest, correction = "all",
+                     nsim = 999, verbose = FALSE)
+plot(G_tm_csr)
+```
+
+The same conclusion holds for Tampines, and the excursion above the envelope is more pronounced, which is consistent with the lower Clark-Evans R that Tampines returned earlier. Two different methods pointing the same way is worth more than either on its own.
+
+### The F function
+
+The F function, sometimes called the empty space function, works from the other direction. It scatters test locations across the window and measures the distance from each to the nearest actual point. Clustering leaves large empty gaps, so short distances become less common, and an F curve below the theoretical line means clustered.
+
+#### Choa Chu Kang
+
+```{r}
+F_ck <- Fest(childcare_ck_ppp)
+plot(F_ck)
+```
+
+```{r}
+F_ck_csr <- envelope(childcare_ck_ppp, Fest, nsim = 999, verbose = FALSE)
+plot(F_ck_csr)
+```
+
+#### Tampines
+
+```{r}
+F_tm <- Fest(childcare_tm_ppp, correction = "best")
+plot(F_tm)
+```
+
+```{r}
+F_tm_csr <- envelope(childcare_tm_ppp, Fest, correction = "all",
+                     nsim = 999, verbose = FALSE)
+plot(F_tm_csr)
+```
+
+::: {.callout-tip}
+## Why G and F have to point opposite ways
+
+If the pattern really is clustered, G should sit above the envelope and F should sit below it. Seeing both above, or both below, would mean something is wrong rather than that the evidence is doubly strong.
+
+The reason is that they measure complementary things. G is measured from the points and asks how close their neighbours are. F is measured from arbitrary locations and asks how far away the nearest point is. Clustering pulls points together, which shortens the first set of distances and lengthens the second.
+
+Checking that the two disagree in the expected direction is a free consistency test, and it is the kind of check that catches a window or a correction argument that has gone wrong.
+:::
+
+### The K function
+
+The K function counts how many other points fall within a given distance of each point, averaged over all points, and compares that count against what a random pattern would give. Unlike G and F it looks at all neighbours rather than only the nearest, so it describes behaviour across a range of scales at once.
+
+The plots below subtract the theoretical value, so the horizontal line at zero is complete spatial randomness and any excursion above it is clustering at that distance.
+
+#### Choa Chu Kang
+
+```{r}
+K_ck <- Kest(childcare_ck_ppp, correction = "Ripley")
+plot(K_ck, . - r ~ r, ylab = "K(d) - r", xlab = "d (m)")
+```
+
+```{r}
+K_ck_csr <- envelope(childcare_ck_ppp, Kest, nsim = 99,
+                     rank = 1, glocal = TRUE, verbose = FALSE)
+plot(K_ck_csr, . - r ~ r, xlab = "d", ylab = "K(d) - r")
+```
+
+#### Tampines
+
+```{r}
+K_tm <- Kest(childcare_tm_ppp, correction = "Ripley")
+plot(K_tm, . - r ~ r, ylab = "K(d) - r", xlab = "d (m)", xlim = c(0, 1000))
+```
+
+```{r}
+K_tm_csr <- envelope(childcare_tm_ppp, Kest, nsim = 99,
+                     rank = 1, glocal = TRUE, verbose = FALSE)
+plot(K_tm_csr, . - r ~ r, xlab = "d", ylab = "K(d) - r", xlim = c(0, 500))
+```
+
+::: {.callout-important}
+## Two things changed in these calls
+
+The simulation count dropped from 999 to 99, and `glocal = TRUE` appeared.
+
+`glocal = TRUE` asks for a global envelope rather than a pointwise one. A pointwise envelope is built separately at every distance, which means that across a whole curve some points will fall outside it by chance even under a true null, and reading such a crossing as significant is a multiple comparisons error. A global envelope is constructed so that the probability of the entire curve escaping anywhere is controlled, which is the correct thing to use when the question is whether the curve as a whole departs from randomness.
+
+The tradeoff is that global envelopes are wider, so they are more conservative, and building one is more expensive, which is why the simulation count came down. With 99 simulations and `rank = 1` the envelope corresponds to a two sided test at roughly the 0.02 level, so I cannot claim 0.001 here the way I did for G and F. That is a real limitation of these two figures rather than a detail, and it means the K and L results support the G and F results rather than standing on their own.
+:::
+
+### The L function
+
+The L function is the K function with the variance stabilised, achieved by taking a square root and rescaling. It carries the same information and is easier to read, because under complete spatial randomness the transformed curve is a straight line rather than a quadratic.
+
+#### Choa Chu Kang
+
+```{r}
+L_ck <- Lest(childcare_ck_ppp, correction = "Ripley")
+plot(L_ck, . - r ~ r, ylab = "L(d) - r", xlab = "d (m)")
+```
+
+```{r}
+L_ck_csr <- envelope(childcare_ck_ppp, Lest, nsim = 99,
+                     rank = 1, glocal = TRUE, verbose = FALSE)
+plot(L_ck_csr, . - r ~ r, xlab = "d", ylab = "L(d) - r")
+```
+
+#### Tampines
+
+```{r}
+L_tm <- Lest(childcare_tm_ppp, correction = "Ripley")
+plot(L_tm, . - r ~ r, ylab = "L(d) - r", xlab = "d (m)", xlim = c(0, 1000))
+```
+
+```{r}
+L_tm_csr <- envelope(childcare_tm_ppp, Lest, nsim = 99,
+                     rank = 1, glocal = TRUE, verbose = FALSE)
+plot(L_tm_csr, . - r ~ r, xlab = "d", ylab = "L(d) - r", xlim = c(0, 500))
+```
+
+**Reading the four functions together.** All four point the same way in both towns, which is clustering at short distances that weakens as distance grows. The distance at which the observed curve returns inside the envelope is the useful number, because it is an estimate of the spatial scale of the clustering, and it is the sort of figure that could inform a catchment radius rather than just confirming that a pattern exists.
+
+## Part 6, going further
+
+Three of the choices made above quietly determine the answer. This section measures each one.
+
+### How much does edge correction change the verdict
+
+Every Clark-Evans test above used `correction = "none"`. That choice is not neutral. A point near the boundary of the window may have its true nearest neighbour just outside, where the data does not extend, so the algorithm reports a longer distance than the real one. Uncorrected, this inflates the mean nearest neighbour distance and pushes R upward, which biases the test against finding clustering.
+
+Singapore's window has a long and highly convoluted coastline relative to its area, so a large share of the points sit near a boundary, and the effect should be larger here than in a compact study area.
+
+```{r}
+ce_compare <- tibble(
+  correction = c("none", "cdf", "guard"),
+  R = c(as.numeric(clarkevans(childcareSG_ppp, correction = "none")),
+        as.numeric(clarkevans(childcareSG_ppp, correction = "cdf")),
+        as.numeric(clarkevans(childcareSG_ppp, correction = "guard",
+                              clipregion = erosion(sg_owin, 500))))
+) %>%
+  mutate(R = round(R, 4))
+
+kable(ce_compare, caption = "Clark-Evans R under three edge corrections")
+```
+
+::: {.callout-important}
+## Reading the three values
+
+The three corrections handle the boundary differently. Doing nothing accepts the bias. The cdf correction adjusts the expected value analytically for the shape of the window. The guard correction only measures nearest neighbour distances for points inside an eroded inner region, so that every measured point has a full neighbourhood of data around it, at the cost of discarding the points in the 500 metre band I eroded away.
+
+If the corrected values sit close to the uncorrected one, then the edge effect is small here and the chapter's choice costs nothing. If they differ noticeably, then the chapter's headline R is not the right number to quote, even though the qualitative conclusion of clustering survives either way.
+
+Either outcome is worth knowing, and the point of computing it is that I could not tell in advance which one it would be. The 500 metre erosion distance is my choice rather than a derived quantity, and a different distance would move the guard value.
+:::
+
+### How much does the bandwidth change the hotspot
+
+The bandwidth table earlier showed the automatic selectors disagreeing by more than an order of magnitude. A map is not a number though, so a difference in sigma does not directly tell me how different the conclusions would be. What I actually care about is whether two analysts using two defensible bandwidths would identify the same places as hotspots.
+
+So I defined a hotspot as the top ten percent of pixels by density, computed it under each bandwidth, and measured the overlap between the resulting sets.
+
+```{r}
+kde_cvl   <- density(childcareSG_ppp_km, sigma = bw.CvL,   edge = TRUE)
+kde_scott <- density(childcareSG_ppp_km, sigma = bw.scott,  edge = TRUE)
+
+top_cells <- function(im, q = 0.9) {
+  v <- as.vector(as.matrix(im))
+  keep <- !is.na(v)
+  thr <- quantile(v[keep], q)
+  which(keep & v >= thr)
+}
+
+jaccard <- function(a, b) {
+  length(intersect(a, b)) / length(union(a, b))
+}
+
+surfaces <- list(diggle = kde_diggle, ppl = kde_ppl,
+                 scott = kde_scott, CvL = kde_cvl)
+tops <- map(surfaces, top_cells)
+
+pairs <- combn(names(tops), 2, simplify = FALSE)
+
+overlap <- map_dfr(pairs, function(p) {
+  tibble(comparison = paste(p[1], "against", p[2]),
+         jaccard = round(jaccard(tops[[p[1]]], tops[[p[2]]]), 3))
+}) %>%
+  arrange(desc(jaccard))
+
+kable(overlap, caption = "Overlap of the top decile of pixels under each bandwidth")
+```
+
+```{r}
+ggplot(overlap, aes(x = reorder(comparison, jaccard), y = jaccard)) +
+  geom_col(fill = "#9C4A2F", alpha = 0.85) +
+  coord_flip() +
+  ylim(0, 1) +
+  labs(title = "Two defensible bandwidths do not identify the same hotspots",
+       subtitle = "Jaccard overlap of the top ten percent of pixels, where one would mean identical",
+       x = NULL, y = "Jaccard overlap") +
+  theme_minimal()
+```
+
+::: {.callout-warning}
+## What a low overlap would mean in practice
+
+A Jaccard value of one would mean the two bandwidths agree exactly on which pixels are hotspots. A value of zero would mean they share none.
+
+The practical reading is about how much a downstream decision depends on an argument nobody would think to question. If a planning team used a density map to decide where the next childcare centre should go, and the map came from `density()` with default settings, then the areas it highlighted were partly determined by a bandwidth selector chosen by whoever wrote the script.
+
+I do not think this makes KDE unusable. It makes reporting the bandwidth mandatory, in the same way that reporting the classification scheme was mandatory for the choropleths in the first exercise. Both are single arguments that carry a large share of the visual conclusion.
+:::
+
+### Is complete spatial randomness the right null
+
+This is the one that bothers me most, and it is a question about the test rather than about the code.
+
+Every test in this document compares the observed pattern against complete spatial randomness over the study window. Under that null, a childcare centre is equally likely to appear anywhere on land, including inside Jurong Island's refineries, the central catchment reservoirs and Changi Airport. Nobody believes that. So rejecting the null was never really in doubt, and a test whose result was determined before the data arrived does not carry much information.
+
+A better null would be that centres are distributed in proportion to the children they serve. If the pattern still departs from that, the departure would mean something.
+
+```{r}
+popdata <- read_csv("data/aspatial/respopagesextod2024.csv",
+                    show_col_types = FALSE)
+
+young_by_sz <- popdata %>%
+  mutate(age_lower = as.numeric(str_extract(AG, "^\\d+"))) %>%
+  filter(age_lower <= 4) %>%
+  group_by(SZ) %>%
+  summarise(YOUNG = sum(Pop), .groups = "drop") %>%
+  mutate(SZ = toupper(str_trim(SZ)))
+
+sz_counts <- mpsz_cl %>%
+  mutate(SUBZONE_N = toupper(SUBZONE_N),
+         centres = lengths(st_intersects(., childcare_sf)),
+         area_sqkm = as.numeric(st_area(.)) / 1e6) %>%
+  st_drop_geometry() %>%
+  select(SUBZONE_N, PLN_AREA_N, centres, area_sqkm) %>%
+  left_join(young_by_sz, by = c("SUBZONE_N" = "SZ")) %>%
+  filter(!is.na(YOUNG))
+
+nrow(sz_counts)
+```
+
+```{r}
+sz_counts %>%
+  summarise(
+    `Correlation, centres against children aged 0 to 4` =
+      cor(centres, YOUNG, method = "spearman"),
+    `Correlation, centres against subzone area` =
+      cor(centres, area_sqkm, method = "spearman")
+  ) %>%
+  pivot_longer(everything(), names_to = "measure", values_to = "rho") %>%
+  mutate(rho = round(rho, 3)) %>%
+  kable(caption = "What childcare provision actually tracks")
+```
+
+```{r}
+ggplot(sz_counts, aes(x = YOUNG, y = centres)) +
+  geom_point(colour = "#6E7F63", alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey30", linewidth = 0.6) +
+  labs(title = "Childcare centres follow children, not land",
+       subtitle = "Each point is a subzone, with children aged 0 to 4 from the resident population table",
+       x = "Residents aged 0 to 4", y = "Childcare centres in subzone") +
+  theme_minimal()
+```
+
+```{r}
+sz_counts %>%
+  filter(YOUNG >= 200) %>%
+  mutate(children_per_centre = round(YOUNG / pmax(centres, 1))) %>%
+  arrange(desc(children_per_centre)) %>%
+  select(SUBZONE_N, PLN_AREA_N, YOUNG, centres, children_per_centre) %>%
+  head(10) %>%
+  kable(caption = "Subzones with the most children per centre, among those with at least 200 young residents")
+```
+
+::: {.callout-important}
+## What this changes about the earlier conclusion
+
+The correlation between centres and young children is far stronger than the correlation between centres and land area. Provision follows population, which is what a working planning system should produce.
+
+This reframes the Clark-Evans result. The pattern is clustered relative to uniform randomness over land, but land was never the relevant reference. Children are clustered too, in the residential towns, and childcare centres are clustered for the same reason and in the same places. So the finding that the pattern is clustered describes Singapore's settlement geography more than it describes anything about childcare policy.
+
+The table above is closer to a useful question. Ranking subzones by children per centre asks whether provision keeps up with need rather than whether it exists, and it names specific places where it might not.
+
+Three caveats, none of which I can resolve here. Capacity is not measured, so a small centre and a large one count the same. Subzone boundaries are not catchments, and a centre just across a boundary still serves those children, which is the same edge problem I measured in the first exercise. And the correlation treats subzones as independent observations when neighbouring subzones plainly are not, which means the coefficient is a fair description while any p value attached to it would be overstated. Handling that properly needs the spatial autocorrelation methods that come later in the course.
+
+The right formal version of this section would be an inhomogeneous null, generating simulated patterns whose intensity is proportional to the child population rather than uniform, and testing against those. `spatstat` supports this through `rpoispp()` with an intensity image and through the inhomogeneous versions of the summary functions. That is beyond what this exercise asks for, and it is what I would do next.
+:::
+
+## Limitations
+
+The observation window excludes the offshore islands, which makes the null more realistic and also makes the study area a choice I made rather than a property of the data. A different reasonable window would give a different R.
+
+Coincident points were separated by jittering rather than removed. That preserves the count and slightly perturbs the geometry, and a different random seed would give marginally different nearest neighbour distances, though not different conclusions.
+
+The K and L envelopes use 99 simulations with a global band, so they cannot support a claim at the 0.001 level even though the G and F envelopes can. I have stated the conclusions accordingly rather than quoting one threshold across all four.
+
+The population figures are from 2024 while the childcare locations are current, so the ratio in the last table mixes two moments in time. In a country that opens new estates as quickly as Singapore does, that gap matters most in exactly the newest towns.
+
+Nothing here uses a distance based accessibility measure, so every statement about provision is really a statement about counts inside boundaries.
+
+## Reflection
+
+The thing I did not expect from this exercise is how much of the analysis is really an argument about the null hypothesis.
+
+In ordinary statistics the null is usually obvious and boring, something like no difference between two groups. Here it is the whole substance. Complete spatial randomness over a window is a specific and quite strong claim about how the world would look if nothing were going on, and both the window and the notion of uniformity are decisions the analyst makes. Change the window by including the offshore islands and the same data becomes more clustered. Change the null from uniform over land to proportional to children and the clustering may largely disappear. The data did not move.
+
+The second thing is that the two orders of analysis answer questions that sound the same and are not. Kernel density says where centres are dense, which is mostly a restatement of where people live. The G, F, K and L functions say whether centres attract each other beyond what their overall density explains, and at what distance. Only the second is about the process rather than the outcome.
+
+The third is a small practical lesson. The duplicate point check took two lines and would have quietly corrupted three of the four summary functions if I had skipped it. That is the same shape of problem as the projection mismatch in the first exercise, which is an operation that fails silently and produces a plausible wrong answer. I am starting to think that most of the real skill in this subject is knowing where those are.
+
+## About this document
+
+Written in Quarto and executed in R. Every figure and table is generated at render time from the files in `data/`. All Monte Carlo results come from the seed set at the top of the document, so a rerun reproduces the same numbers.
+
+```{r}
+sessionInfo()
+```
