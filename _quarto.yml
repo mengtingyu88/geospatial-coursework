@@ -1,0 +1,58 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "Geospatial Analytics"
+  description: "Geospatial Analytics and Applications coursework portfolio by Meng Tingyu"
+  site-url: "https://geospatial-coursework.vercel.app"
+  navbar:
+    background: primary
+    search: true
+    left:
+      - href: index.qmd
+        text: Home
+      - text: "Hands-on Exercises"
+        menu:
+          - href: Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.qmd
+            text: "Hands-on Ex01: Geospatial Data Wrangling"
+      - text: "In-class Exercises"
+        menu:
+          - href: In-class_Ex/In-class_Ex01/In-class_Ex01.qmd
+            text: "In-class Ex01"
+      - text: "Take-home Exercises"
+        menu:
+          - href: Take-home_Ex/Take-home_Ex01/Take-home_Ex01.qmd
+            text: "Take-home Ex01"
+    right:
+      - href: about.qmd
+        text: About
+  page-footer:
+    center: "Meng Tingyu | MITB | Singapore Management University"
+    background: light
+
+format:
+  html:
+    theme:
+      light: [litera, custom.scss]
+      dark: [darkly, custom-dark.scss]
+    css: styles.css
+    toc: true
+    toc-depth: 4
+    toc-location: right
+    code-copy: true
+    code-overflow: wrap
+    code-fold: false
+    code-line-numbers: false
+    fig-align: center
+    fig-cap-location: bottom
+    link-external-newwindow: true
+
+execute:
+  freeze: auto
+  echo: true
+  eval: true
+  warning: false
+  message: false
+
+editor: source

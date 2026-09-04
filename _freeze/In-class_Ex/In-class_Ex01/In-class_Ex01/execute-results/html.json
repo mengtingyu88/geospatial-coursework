@@ -1,0 +1,15 @@
+{
+  "hash": "0c2bd5376bc3080aa84dada4523c9d7e",
+  "result": {
+    "engine": "knitr",
+    "markdown": "---\ntitle: \"In-class Exercise 01\"\nauthor: \"Meng Tingyu\"\ndate: \"last-modified\"\ndate-format: \"DD MMM YYYY\"\n---\n\n## Overview\n\nPlaceholder. I will replace this with the in-class work and my interpretation notes after the first session.\n\n## Getting started\n\n\n::: {.cell}\n\n```{.r .cell-code}\npacman::p_load(sf, tidyverse, tmap)\n```\n:::\n\n",
+    "supporting": [],
+    "filters": [
+      "rmarkdown/pagebreak.lua"
+    ],
+    "includes": {},
+    "engineDependencies": {},
+    "preserve": {},
+    "postProcess": true
+  }
+}

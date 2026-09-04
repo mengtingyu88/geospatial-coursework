@@ -1,0 +1,66 @@
+/*-- scss:defaults --*/
+
+// ============================================================
+// PALETTE: Terracotta and Sage, dark variant
+// Warm charcoal rather than the blue-grey that darkly ships with.
+// ============================================================
+
+$clay-light:  #D98E6B;   // links and headings, lifted for contrast
+$clay:        #9C4A2F;   // navbar
+$sage-light:  #9DAF91;
+$char:        #211E1B;   // page background
+$char-raised: #2B2723;   // cards and code blocks
+$edge-dark:   #3D3831;
+$text-dim:    #DED6CC;
+
+// ---- Bootstrap core ----
+$primary:     $clay-light;
+$secondary:   $sage-light;
+$body-color:  $text-dim;
+$body-bg:     $char;
+
+$link-color:        $clay-light;
+$link-hover-color:  #E9A886;
+
+$border-color:      $edge-dark;
+
+// ---- Typography ----
+$font-family-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                         "Helvetica Neue", Arial, "Microsoft YaHei", sans-serif;
+$headings-font-family:   Georgia, "Iowan Old Style", "Source Serif 4",
+                         "Times New Roman", serif;
+$font-family-monospace:  "Cascadia Mono", "JetBrains Mono", Consolas,
+                         "Courier New", monospace;
+
+$headings-font-weight: 600;
+$headings-color:      $clay-light;
+
+// ---- Navbar ----
+$navbar-bg: $clay;
+$navbar-fg: #F7EFE8;
+$navbar-hl: #FFFFFF;
+
+// ---- Footer ----
+$footer-bg: $char-raised;
+$footer-fg: #A79C90;
+
+// ---- Code ----
+$code-color:    $clay-light;
+$code-bg:       $char-raised;
+$code-block-bg: $char-raised;
+
+// ---- Table of contents ----
+$toc-color:        $text-dim;
+$toc-active-border: $clay-light;
+
+
+/*-- scss:rules --*/
+
+.navbar {
+  border-bottom: 3px solid #6E3520;
+}
+
+code:not(.sourceCode) {
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+}

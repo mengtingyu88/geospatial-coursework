@@ -1,0 +1,16 @@
+---
+title: "In-class Exercise 01"
+author: "Meng Tingyu"
+date: "last-modified"
+date-format: "DD MMM YYYY"
+---
+
+## Overview
+
+Placeholder. I will replace this with the in-class work and my interpretation notes after the first session.
+
+## Getting started
+
+```{r}
+pacman::p_load(sf, tidyverse, tmap)
+```

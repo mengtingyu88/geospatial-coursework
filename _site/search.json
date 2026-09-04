@@ -1,0 +1,226 @@
+[
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html",
+    "href": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html",
+    "title": "Take-home Exercise 01",
+    "section": "",
+    "text": "Placeholder. I will replace this once the take-home handout is released."
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html#overview",
+    "href": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html#overview",
+    "title": "Take-home Exercise 01",
+    "section": "",
+    "text": "Placeholder. I will replace this once the take-home handout is released."
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html#the-task",
+    "href": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html#the-task",
+    "title": "Take-home Exercise 01",
+    "section": "The task",
+    "text": "The task\nTo be filled in from the handout."
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html#data",
+    "href": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html#data",
+    "title": "Take-home Exercise 01",
+    "section": "Data",
+    "text": "Data\nTo be filled in. I will document the source, the download date, and any preprocessing here so the analysis can be reproduced from raw files."
+  },
+  {
+    "objectID": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html#getting-started",
+    "href": "Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html#getting-started",
+    "title": "Take-home Exercise 01",
+    "section": "Getting started",
+    "text": "Getting started\n\npacman::p_load(sf, tidyverse, tmap)"
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Geospatial Analytics and Applications",
+    "section": "",
+    "text": "Meng Tingyu\n\n\nMaster of IT in Business, Singapore Management University\nThis is where I keep my work for Geospatial Analytics and Applications. Over the term it will fill up with weekly exercises and three larger take-home analyses, covering geospatial data wrangling, thematic mapping, spatial point patterns, spatial autocorrelation, clustering, and geographically weighted models.\nEverything here is written in R and Quarto, and the code that produced each figure is visible on the page. I work this way for a practical reason. When an analysis is written up properly, I find out fairly quickly whether I understand the method or only know which function to call, and that gap is much cheaper to discover here than in an exam.\nA word on what I am aiming for. Geospatial work makes it unusually easy to produce something that looks convincing and is quietly wrong. A map with the wrong projection still renders. A spatial weights matrix built on the wrong neighbour definition still returns a Moran’s I. So alongside the results, I try to record the assumptions each method needs and the checks I ran before trusting the output."
+  },
+  {
+    "objectID": "index.html#hands-on-exercises",
+    "href": "index.html#hands-on-exercises",
+    "title": "Geospatial Analytics and Applications",
+    "section": "Hands-on Exercises",
+    "text": "Hands-on Exercises\n\nWeekly guided exercises. The goal is to get the mechanics right: reading data correctly, projecting it correctly, and producing a map that is not misleading.\n\n\n\nHands-on Ex01\nGeospatial data wrangling with sf. Importing, projecting, and joining aspatial and geospatial data."
+  },
+  {
+    "objectID": "index.html#in-class-exercises",
+    "href": "index.html#in-class-exercises",
+    "title": "Geospatial Analytics and Applications",
+    "section": "In-class Exercises",
+    "text": "In-class Exercises\n\nExtensions of the hands-on work into interpretation. Less about getting the code to run, more about deciding what the output actually means.\n\n\n\nIn-class Ex01\nComing soon."
+  },
+  {
+    "objectID": "index.html#take-home-exercises",
+    "href": "index.html#take-home-exercises",
+    "title": "Geospatial Analytics and Applications",
+    "section": "Take-home Exercises",
+    "text": "Take-home Exercises\n\nThe larger pieces of work, where I take a real dataset and carry an analysis from raw files through to a conclusion someone could act on.\n\n\n\nTake-home Ex01\nComing soon."
+  },
+  {
+    "objectID": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html",
+    "href": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html",
+    "title": "Hands-on Exercise 01: Geospatial Data Wrangling",
+    "section": "",
+    "text": "Placeholder. I will replace this with the actual write-up after the first lesson.\nThe plan for this exercise is to import geospatial data in shapefile and KML format, import an aspatial dataset and convert it into a spatial object, and check that everything ends up in a consistent coordinate reference system before any analysis begins."
+  },
+  {
+    "objectID": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html#overview",
+    "href": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html#overview",
+    "title": "Hands-on Exercise 01: Geospatial Data Wrangling",
+    "section": "",
+    "text": "Placeholder. I will replace this with the actual write-up after the first lesson.\nThe plan for this exercise is to import geospatial data in shapefile and KML format, import an aspatial dataset and convert it into a spatial object, and check that everything ends up in a consistent coordinate reference system before any analysis begins."
+  },
+  {
+    "objectID": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html#getting-started",
+    "href": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html#getting-started",
+    "title": "Hands-on Exercise 01: Geospatial Data Wrangling",
+    "section": "Getting started",
+    "text": "Getting started\n\npacman::p_load(sf, tidyverse, tmap)"
+  },
+  {
+    "objectID": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html#importing-geospatial-data",
+    "href": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html#importing-geospatial-data",
+    "title": "Hands-on Exercise 01: Geospatial Data Wrangling",
+    "section": "Importing geospatial data",
+    "text": "Importing geospatial data\n\nmpsz &lt;- st_read(dsn = \"data/geospatial\", \n                layer = \"MP14_SUBZONE_WEB_PL\")"
+  },
+  {
+    "objectID": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html#checking-the-coordinate-reference-system",
+    "href": "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html#checking-the-coordinate-reference-system",
+    "title": "Hands-on Exercise 01: Geospatial Data Wrangling",
+    "section": "Checking the coordinate reference system",
+    "text": "Checking the coordinate reference system\nAlways confirm the CRS before doing anything else. Singapore data arrives in a mix of SVY21 and WGS84, and any calculation involving distance or area needs a projected CRS.\n\nst_crs(mpsz)\n\n\nmpsz3414 &lt;- st_transform(mpsz, crs = 3414)\n\n\n\n\n\n\n\nNoteNote to self\n\n\n\nst_set_crs() and st_transform() do different things. st_set_crs() only relabels the data as being in a given CRS without moving any coordinates, so it is the right tool when the CRS tag is wrong but the numbers are fine. st_transform() actually reprojects the coordinates. Using the first when I meant the second silently produces wrong distances."
+  },
+  {
+    "objectID": "about.html",
+    "href": "about.html",
+    "title": "About",
+    "section": "",
+    "text": "This is my coursework portfolio for Geospatial Analytics and Applications, part of the Master of IT in Business programme at Singapore Management University.\nEverything on this site is built with Quarto and R. The main packages I work with are sf for handling spatial objects, tmap for thematic mapping, spdep and sfdep for spatial weights and autocorrelation, spatstat for point pattern analysis, and GWmodel for geographically weighted regression."
+  },
+  {
+    "objectID": "about.html#about-this-site",
+    "href": "about.html#about-this-site",
+    "title": "About",
+    "section": "",
+    "text": "This is my coursework portfolio for Geospatial Analytics and Applications, part of the Master of IT in Business programme at Singapore Management University.\nEverything on this site is built with Quarto and R. The main packages I work with are sf for handling spatial objects, tmap for thematic mapping, spdep and sfdep for spatial weights and autocorrelation, spatstat for point pattern analysis, and GWmodel for geographically weighted regression."
+  },
+  {
+    "objectID": "about.html#a-note-on-reproducibility",
+    "href": "about.html#a-note-on-reproducibility",
+    "title": "About",
+    "section": "A note on reproducibility",
+    "text": "A note on reproducibility\nEach page shows the code that produced every figure and table. Where a dataset is small enough, it is stored alongside the analysis in this repository. Where it is not, the source and the download steps are documented at the top of the page so that the work can be repeated from scratch.\nI use Quarto’s freeze feature, which caches computed results and only re-executes a page when its source changes. This keeps the site fast to rebuild, but it also means the committed output reflects the last successful run rather than a fresh run on every deploy."
+  },
+  {
+    "objectID": "about.html#projections",
+    "href": "about.html#projections",
+    "title": "About",
+    "section": "Projections",
+    "text": "Projections\nAll analysis in this portfolio uses SVY21 (EPSG:3414) as the projected coordinate reference system. Singapore geospatial data arrives in a mixture of SVY21 and WGS84 (EPSG:4326), and any calculation involving distance, area, or spatial weights requires a projected CRS rather than a geographic one. Where a dataset needs converting, the transformation step is shown explicitly rather than assumed."
+  },
+  {
+    "objectID": "about.html#other-coursework",
+    "href": "about.html#other-coursework",
+    "title": "About",
+    "section": "Other coursework",
+    "text": "Other coursework\nMy Visual Analytics and Applications portfolio from the previous term is available here."
+  },
+  {
+    "objectID": "about.html#contact",
+    "href": "about.html#contact",
+    "title": "About",
+    "section": "Contact",
+    "text": "Contact\nMeng Tingyu, MITB, Singapore Management University."
+  },
+  {
+    "objectID": "In-class_Ex/In-class_Ex01/In-class_Ex01.html",
+    "href": "In-class_Ex/In-class_Ex01/In-class_Ex01.html",
+    "title": "In-class Exercise 01",
+    "section": "",
+    "text": "Placeholder. I will replace this with the in-class work and my interpretation notes after the first session."
+  },
+  {
+    "objectID": "In-class_Ex/In-class_Ex01/In-class_Ex01.html#overview",
+    "href": "In-class_Ex/In-class_Ex01/In-class_Ex01.html#overview",
+    "title": "In-class Exercise 01",
+    "section": "",
+    "text": "Placeholder. I will replace this with the in-class work and my interpretation notes after the first session."
+  },
+  {
+    "objectID": "In-class_Ex/In-class_Ex01/In-class_Ex01.html#getting-started",
+    "href": "In-class_Ex/In-class_Ex01/In-class_Ex01.html#getting-started",
+    "title": "In-class Exercise 01",
+    "section": "Getting started",
+    "text": "Getting started\n\npacman::p_load(sf, tidyverse, tmap)"
+  },
+  {
+    "objectID": "SETUP.html",
+    "href": "SETUP.html",
+    "title": "Setup steps",
+    "section": "",
+    "text": "This file is for my own reference. It can be deleted once the site is live.\n\n\nUnzip so that the project sits at:\nD:/mengtingyu88/geospatial-coursework\nSingle level, not nested. Open geospatial-coursework.Rproj in RStudio.\n\n\n\nRun once in the R Console:\ninstall.packages(\"pacman\")\n\npacman::p_load(sf, tidyverse, tmap, spdep, sfdep, spatstat,\n               raster, GWmodel, SpatialAcc,\n               olsrr, corrplot, ggpubr, plotly, knitr)\nThen verify each one loads before relying on it:\nlibrary(sf); library(tmap); library(spdep); library(GWmodel)\nsf on Windows installs as a binary with GDAL, GEOS and PROJ bundled, so it normally needs no system setup. GWmodel and spatstat are large. maptools has been retired from CRAN, so skip it if a tutorial calls for it and find the modern equivalent.\n\n\n\nFrom the project root, in the Terminal:\npwd          # must show the project root\nls -la       # must show _quarto.yml, index.qmd\nquarto render\nSuccess looks like _site/index.html existing.\n\n\n\nCreate an empty repo on GitHub first. Do not tick README, .gitignore or licence.\ngit init\ngit add .\ngit commit -m \"Initial site framework for geospatial analytics coursework\"\ngit branch -M main\ngit remote add origin https://github.com/mengtingyu88/geospatial-coursework.git\ngit push -u origin main\nUse straight quotes in the commit message. Curly quotes break Bash string parsing.\n\n\n\nImport the repo. Change one setting only:\n\nRoot Directory: _site\nFramework Preset: Other\nBuild Command: leave empty\nInstall Command: leave empty\n\nSet the Project Name deliberately. It becomes the URL, and it is globally unique across Vercel, so a generic name may already be taken. Once the URL is submitted to the instructor, the Vercel project name is fixed. The GitHub repo name can still be changed freely.\n\n\n\nAfter Vercel gives the real URL, edit site-url in _quarto.yml to match, then render, commit and push again.\n\n\n\nAlways from the project root, always all four steps:\nquarto render\ngit add .\ngit commit -m \"message\"\ngit push\n\n\n\n\n_site/ is what Vercel serves.\n_freeze/ is the computed-output cache. Losing it means every page re-executes.\n\nNeither is in .gitignore, and neither should be added to it."
+  },
+  {
+    "objectID": "SETUP.html#place-the-folder",
+    "href": "SETUP.html#place-the-folder",
+    "title": "Setup steps",
+    "section": "",
+    "text": "Unzip so that the project sits at:\nD:/mengtingyu88/geospatial-coursework\nSingle level, not nested. Open geospatial-coursework.Rproj in RStudio."
+  },
+  {
+    "objectID": "SETUP.html#install-packages",
+    "href": "SETUP.html#install-packages",
+    "title": "Setup steps",
+    "section": "",
+    "text": "Run once in the R Console:\ninstall.packages(\"pacman\")\n\npacman::p_load(sf, tidyverse, tmap, spdep, sfdep, spatstat,\n               raster, GWmodel, SpatialAcc,\n               olsrr, corrplot, ggpubr, plotly, knitr)\nThen verify each one loads before relying on it:\nlibrary(sf); library(tmap); library(spdep); library(GWmodel)\nsf on Windows installs as a binary with GDAL, GEOS and PROJ bundled, so it normally needs no system setup. GWmodel and spatstat are large. maptools has been retired from CRAN, so skip it if a tutorial calls for it and find the modern equivalent."
+  },
+  {
+    "objectID": "SETUP.html#first-render",
+    "href": "SETUP.html#first-render",
+    "title": "Setup steps",
+    "section": "",
+    "text": "From the project root, in the Terminal:\npwd          # must show the project root\nls -la       # must show _quarto.yml, index.qmd\nquarto render\nSuccess looks like _site/index.html existing."
+  },
+  {
+    "objectID": "SETUP.html#git",
+    "href": "SETUP.html#git",
+    "title": "Setup steps",
+    "section": "",
+    "text": "Create an empty repo on GitHub first. Do not tick README, .gitignore or licence.\ngit init\ngit add .\ngit commit -m \"Initial site framework for geospatial analytics coursework\"\ngit branch -M main\ngit remote add origin https://github.com/mengtingyu88/geospatial-coursework.git\ngit push -u origin main\nUse straight quotes in the commit message. Curly quotes break Bash string parsing."
+  },
+  {
+    "objectID": "SETUP.html#vercel",
+    "href": "SETUP.html#vercel",
+    "title": "Setup steps",
+    "section": "",
+    "text": "Import the repo. Change one setting only:\n\nRoot Directory: _site\nFramework Preset: Other\nBuild Command: leave empty\nInstall Command: leave empty\n\nSet the Project Name deliberately. It becomes the URL, and it is globally unique across Vercel, so a generic name may already be taken. Once the URL is submitted to the instructor, the Vercel project name is fixed. The GitHub repo name can still be changed freely."
+  },
+  {
+    "objectID": "SETUP.html#update-site-url",
+    "href": "SETUP.html#update-site-url",
+    "title": "Setup steps",
+    "section": "",
+    "text": "After Vercel gives the real URL, edit site-url in _quarto.yml to match, then render, commit and push again."
+  },
+  {
+    "objectID": "SETUP.html#routine-from-then-on",
+    "href": "SETUP.html#routine-from-then-on",
+    "title": "Setup steps",
+    "section": "",
+    "text": "Always from the project root, always all four steps:\nquarto render\ngit add .\ngit commit -m \"message\"\ngit push"
+  },
+  {
+    "objectID": "SETUP.html#two-directories-that-must-stay-in-git",
+    "href": "SETUP.html#two-directories-that-must-stay-in-git",
+    "title": "Setup steps",
+    "section": "",
+    "text": "_site/ is what Vercel serves.\n_freeze/ is the computed-output cache. Losing it means every page re-executes.\n\nNeither is in .gitignore, and neither should be added to it."
+  }
+]

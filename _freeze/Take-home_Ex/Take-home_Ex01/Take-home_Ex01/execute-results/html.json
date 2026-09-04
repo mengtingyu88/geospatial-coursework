@@ -1,0 +1,15 @@
+{
+  "hash": "c335e8654ebc8bc7521875ba5b679f0d",
+  "result": {
+    "engine": "knitr",
+    "markdown": "---\ntitle: \"Take-home Exercise 01\"\nauthor: \"Meng Tingyu\"\ndate: \"last-modified\"\ndate-format: \"DD MMM YYYY\"\n---\n\n## Overview\n\nPlaceholder. I will replace this once the take-home handout is released.\n\n## The task\n\nTo be filled in from the handout.\n\n## Data\n\nTo be filled in. I will document the source, the download date, and any preprocessing here so the analysis can be reproduced from raw files.\n\n## Getting started\n\n\n::: {.cell}\n\n```{.r .cell-code}\npacman::p_load(sf, tidyverse, tmap)\n```\n:::\n\n",
+    "supporting": [],
+    "filters": [
+      "rmarkdown/pagebreak.lua"
+    ],
+    "includes": {},
+    "engineDependencies": {},
+    "preserve": {},
+    "postProcess": true
+  }
+}

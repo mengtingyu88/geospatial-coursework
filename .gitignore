@@ -1,0 +1,20 @@
+# RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Quarto internal cache
+# NOTE: _freeze/ is intentionally NOT ignored. It must be committed
+# or the freeze cache is lost on every clone and rebuild.
+/.quarto/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large raw geospatial data. Uncomment per case if a file exceeds 50 MB,
+# and document the download steps in the qmd instead.
+# **/data/raw/
+
+**/*.quarto_ipynb

@@ -1,0 +1,71 @@
+/*-- scss:defaults --*/
+
+// ============================================================
+// PALETTE: Terracotta and Sage
+// To switch palettes, change these six values here AND the
+// matching block at the top of styles.css. Keep them in sync.
+// ============================================================
+
+$clay:        #9C4A2F;   // primary, navbar, links
+$clay-deep:   #7A3A24;   // hover states
+$ink:         #2E2A26;   // body text
+$sage:        #6E7F63;   // secondary accent
+$paper:       #FBF8F4;   // card and callout background
+$edge:        #E4D9CC;   // borders and rules
+
+// ---- Bootstrap core ----
+$primary:     $clay;
+$secondary:   $sage;
+$body-color:  $ink;
+$body-bg:     #FFFFFF;
+
+$link-color:        $clay;
+$link-hover-color:  $clay-deep;
+
+$border-color:      $edge;
+
+// ---- Typography ----
+// Serif headings against a sans body. No web font dependency,
+// so the site renders identically offline and on first paint.
+$font-family-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                         "Helvetica Neue", Arial, "Microsoft YaHei", sans-serif;
+$headings-font-family:   Georgia, "Iowan Old Style", "Source Serif 4",
+                         "Times New Roman", serif;
+$font-family-monospace:  "Cascadia Mono", "JetBrains Mono", Consolas,
+                         "Courier New", monospace;
+
+$font-size-base:      1rem;
+$headings-font-weight: 600;
+$headings-color:      $clay-deep;
+
+// ---- Navbar ----
+$navbar-bg: $clay;
+$navbar-fg: #F7EFE8;
+$navbar-hl: #FFFFFF;
+
+// ---- Footer ----
+$footer-bg: $paper;
+$footer-fg: #6B6259;
+
+// ---- Code ----
+$code-color:    $clay-deep;
+$code-bg:       #F6F1EA;
+$code-block-bg: #FAF7F2;
+
+// ---- Table of contents ----
+$toc-color:        $ink;
+$toc-active-border: $clay;
+
+
+/*-- scss:rules --*/
+
+// Softer rule under the navbar so it does not read as a hard bar
+.navbar {
+  border-bottom: 3px solid $clay-deep;
+}
+
+// Inline code should not look like a link
+code:not(.sourceCode) {
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+}

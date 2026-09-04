@@ -1,0 +1,24 @@
+---
+title: "Take-home Exercise 01"
+author: "Meng Tingyu"
+date: "last-modified"
+date-format: "DD MMM YYYY"
+---
+
+## Overview
+
+Placeholder. I will replace this once the take-home handout is released.
+
+## The task
+
+To be filled in from the handout.
+
+## Data
+
+To be filled in. I will document the source, the download date, and any preprocessing here so the analysis can be reproduced from raw files.
+
+## Getting started
+
+```{r}
+pacman::p_load(sf, tidyverse, tmap)
+```

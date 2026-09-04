@@ -1,0 +1,64 @@
+---
+title: "Geospatial Analytics and Applications"
+subtitle: "Coursework Portfolio"
+---
+
+::: {.name-block}
+::: {.owner}
+Meng Tingyu
+:::
+::: {.affil}
+Master of IT in Business, Singapore Management University
+:::
+:::
+
+This is where I keep my work for Geospatial Analytics and Applications. Over the term it will fill up with weekly exercises and three larger take-home analyses, covering geospatial data wrangling, thematic mapping, spatial point patterns, spatial autocorrelation, clustering, and geographically weighted models.
+
+Everything here is written in R and Quarto, and the code that produced each figure is visible on the page. I work this way for a practical reason. When an analysis is written up properly, I find out fairly quickly whether I understand the method or only know which function to call, and that gap is much cheaper to discover here than in an exam.
+
+A word on what I am aiming for. Geospatial work makes it unusually easy to produce something that looks convincing and is quietly wrong. A map with the wrong projection still renders. A spatial weights matrix built on the wrong neighbour definition still returns a Moran's I. So alongside the results, I try to record the assumptions each method needs and the checks I ran before trusting the output.
+
+## Hands-on Exercises
+
+::: {.section-lead}
+Weekly guided exercises. The goal is to get the mechanics right: reading data correctly, projecting it correctly, and producing a map that is not misleading.
+:::
+
+::: {.grid}
+
+::: {.g-col-12 .g-col-md-4}
+### [Hands-on Ex01](Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.qmd)
+Geospatial data wrangling with sf. Importing, projecting, and joining aspatial and geospatial data.
+:::
+
+:::
+
+## In-class Exercises
+
+::: {.section-lead}
+Extensions of the hands-on work into interpretation. Less about getting the code to run, more about deciding what the output actually means.
+:::
+
+::: {.grid}
+
+::: {.g-col-12 .g-col-md-4 .pending}
+### [In-class Ex01](In-class_Ex/In-class_Ex01/In-class_Ex01.qmd)
+Coming soon.
+:::
+
+:::
+
+## Take-home Exercises
+
+::: {.section-lead}
+The larger pieces of work, where I take a real dataset and carry an analysis from raw files through to a conclusion someone could act on.
+:::
+
+::: {.grid}
+
+::: {.g-col-12 .g-col-md-4 .pending}
+### [Take-home Ex01](Take-home_Ex/Take-home_Ex01/Take-home_Ex01.qmd)
+Coming soon.
+:::
+
+:::

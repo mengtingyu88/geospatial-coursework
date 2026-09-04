@@ -1,0 +1,27 @@
+---
+title: "About"
+---
+
+## About this site
+
+This is my coursework portfolio for Geospatial Analytics and Applications, part of the Master of IT in Business programme at Singapore Management University.
+
+Everything on this site is built with Quarto and R. The main packages I work with are **sf** for handling spatial objects, **tmap** for thematic mapping, **spdep** and **sfdep** for spatial weights and autocorrelation, **spatstat** for point pattern analysis, and **GWmodel** for geographically weighted regression.
+
+## A note on reproducibility
+
+Each page shows the code that produced every figure and table. Where a dataset is small enough, it is stored alongside the analysis in this repository. Where it is not, the source and the download steps are documented at the top of the page so that the work can be repeated from scratch.
+
+I use Quarto's freeze feature, which caches computed results and only re-executes a page when its source changes. This keeps the site fast to rebuild, but it also means the committed output reflects the last successful run rather than a fresh run on every deploy.
+
+## Projections
+
+All analysis in this portfolio uses SVY21 (EPSG:3414) as the projected coordinate reference system. Singapore geospatial data arrives in a mixture of SVY21 and WGS84 (EPSG:4326), and any calculation involving distance, area, or spatial weights requires a projected CRS rather than a geographic one. Where a dataset needs converting, the transformation step is shown explicitly rather than assumed.
+
+## Other coursework
+
+My Visual Analytics and Applications portfolio from the previous term is available [here](https://ggplot-coursework.vercel.app).
+
+## Contact
+
+Meng Tingyu, MITB, Singapore Management University.

@@ -1,0 +1,15 @@
+{
+  "hash": "56cf4ba8452fc51645d17a51dfcfdbe8",
+  "result": {
+    "engine": "knitr",
+    "markdown": "---\ntitle: \"Hands-on Exercise 01: Geospatial Data Wrangling\"\nauthor: \"Meng Tingyu\"\ndate: \"last-modified\"\ndate-format: \"DD MMM YYYY\"\n---\n\n## Overview\n\nPlaceholder. I will replace this with the actual write-up after the first lesson.\n\nThe plan for this exercise is to import geospatial data in shapefile and KML format, import an aspatial dataset and convert it into a spatial object, and check that everything ends up in a consistent coordinate reference system before any analysis begins.\n\n## Getting started\n\n\n::: {.cell}\n\n```{.r .cell-code}\npacman::p_load(sf, tidyverse, tmap)\n```\n:::\n\n\n## Importing geospatial data\n\n\n::: {.cell}\n\n```{.r .cell-code}\nmpsz <- st_read(dsn = \"data/geospatial\", \n                layer = \"MP14_SUBZONE_WEB_PL\")\n```\n:::\n\n\n## Checking the coordinate reference system\n\nAlways confirm the CRS before doing anything else. Singapore data arrives in a mix of SVY21 and WGS84, and any calculation involving distance or area needs a projected CRS.\n\n\n::: {.cell}\n\n```{.r .cell-code}\nst_crs(mpsz)\n```\n:::\n\n\n\n::: {.cell}\n\n```{.r .cell-code}\nmpsz3414 <- st_transform(mpsz, crs = 3414)\n```\n:::\n\n\n::: {.callout-note}\n## Note to self\n`st_set_crs()` and `st_transform()` do different things. `st_set_crs()` only relabels the data as being in a given CRS without moving any coordinates, so it is the right tool when the CRS tag is wrong but the numbers are fine. `st_transform()` actually reprojects the coordinates. Using the first when I meant the second silently produces wrong distances.\n:::\n",
+    "supporting": [],
+    "filters": [
+      "rmarkdown/pagebreak.lua"
+    ],
+    "includes": {},
+    "engineDependencies": {},
+    "preserve": {},
+    "postProcess": true
+  }
+}

@@ -1,0 +1,155 @@
+/* ============================================================
+   PALETTE: Terracotta and Sage
+   These six values must match the ones at the top of custom.scss.
+   Change both files together when switching palettes.
+   ============================================================ */
+
+:root {
+  --clay:      #9C4A2F;
+  --clay-deep: #7A3A24;
+  --ink:       #2E2A26;
+  --sage:      #6E7F63;
+  --paper:     #FBF8F4;
+  --edge:      #E4D9CC;
+}
+
+/* ---- Body text ---- */
+body {
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+/* ---- Headings ---- */
+h2 {
+  margin-top: 2.4rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--edge);
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  margin-top: 1.7rem;
+}
+
+/* ---- Homepage name block ---- */
+.name-block {
+  margin: 0 0 2.2rem 0;
+  padding: 1.4rem 1.6rem;
+  border-left: 5px solid var(--clay);
+  background: var(--paper);
+  border-radius: 0 6px 6px 0;
+}
+
+.name-block .owner {
+  font-family: Georgia, "Iowan Old Style", "Source Serif 4", serif;
+  font-size: 1.45rem;
+  font-weight: 600;
+  color: var(--clay-deep);
+  margin: 0 0 0.25rem 0;
+  line-height: 1.25;
+}
+
+.name-block .affil {
+  font-size: 0.92rem;
+  color: var(--sage);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+/* ---- Section lead-in text ---- */
+.section-lead {
+  color: #6B6259;
+  font-size: 0.97rem;
+  margin-bottom: 1.3rem;
+}
+
+/* ---- Homepage card grid ---- */
+.grid > div {
+  border: 1px solid var(--edge);
+  border-top: 3px solid var(--sage);
+  border-radius: 6px;
+  padding: 1.15rem 1.25rem;
+  background: var(--paper);
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.grid > div:hover {
+  box-shadow: 0 4px 14px rgba(122, 58, 36, 0.14);
+  transform: translateY(-2px);
+}
+
+.grid > div h3 {
+  margin-top: 0;
+  font-size: 1.06rem;
+}
+
+.grid > div h3 a {
+  text-decoration: none;
+}
+
+.grid > div h3 a:hover {
+  text-decoration: underline;
+}
+
+/* Cards that are not live yet read as muted */
+.grid > div.pending {
+  border-top-color: var(--edge);
+  background: #FCFBF9;
+  opacity: 0.75;
+}
+
+/* ---- Code ---- */
+pre {
+  font-size: 0.85em;
+  border-radius: 6px;
+  border-left: 4px solid var(--clay);
+}
+
+code {
+  font-size: 0.88em;
+}
+
+/* ---- Callouts ---- */
+.callout {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ---- Figures and maps ---- */
+.figure img, .quarto-figure img {
+  border-radius: 4px;
+}
+
+/* tmap view mode produces a Leaflet map with no border of its own */
+.leaflet-container {
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+}
+
+/* ---- Tables ---- */
+table {
+  font-size: 0.9em;
+}
+
+/* ---- Dark mode ---- */
+.quarto-dark {
+  --clay:      #D98E6B;
+  --clay-deep: #E9A886;
+  --ink:       #DED6CC;
+  --sage:      #9DAF91;
+  --paper:     #2B2723;
+  --edge:      #3D3831;
+}
+
+.quarto-dark .grid > div.pending {
+  background: #262320;
+}
+
+.quarto-dark .section-lead {
+  color: #A79C90;
+}
+
+.quarto-dark .grid > div:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}

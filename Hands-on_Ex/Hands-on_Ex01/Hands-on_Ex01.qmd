@@ -1,0 +1,45 @@
+---
+title: "Hands-on Exercise 01: Geospatial Data Wrangling"
+author: "Meng Tingyu"
+date: "last-modified"
+date-format: "DD MMM YYYY"
+---
+
+## Overview
+
+Placeholder. I will replace this with the actual write-up after the first lesson.
+
+The plan for this exercise is to import geospatial data in shapefile and KML format, import an aspatial dataset and convert it into a spatial object, and check that everything ends up in a consistent coordinate reference system before any analysis begins.
+
+## Getting started
+
+```{r}
+pacman::p_load(sf, tidyverse, tmap)
+```
+
+## Importing geospatial data
+
+```{r}
+#| eval: false
+mpsz <- st_read(dsn = "data/geospatial", 
+                layer = "MP14_SUBZONE_WEB_PL")
+```
+
+## Checking the coordinate reference system
+
+Always confirm the CRS before doing anything else. Singapore data arrives in a mix of SVY21 and WGS84, and any calculation involving distance or area needs a projected CRS.
+
+```{r}
+#| eval: false
+st_crs(mpsz)
+```
+
+```{r}
+#| eval: false
+mpsz3414 <- st_transform(mpsz, crs = 3414)
+```
+
+::: {.callout-note}
+## Note to self
+`st_set_crs()` and `st_transform()` do different things. `st_set_crs()` only relabels the data as being in a given CRS without moving any coordinates, so it is the right tool when the CRS tag is wrong but the numbers are fine. `st_transform()` actually reprojects the coordinates. Using the first when I meant the second silently produces wrong distances.
+:::
