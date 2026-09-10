@@ -18,6 +18,8 @@ website:
             text: "Hands-on Ex01: Data Wrangling and Choropleth Mapping"
           - href: Hands-on_Ex/Hands-on_Ex02/Hands-on_Ex02.qmd
             text: "Hands-on Ex02: Spatial Point Patterns Analysis"
+          - href: Hands-on_Ex/Hands-on_Ex03/Hands-on_Ex03.qmd
+            text: "Hands-on Ex03: Spatio-Temporal Point Patterns Analysis"
       - text: "In-class Exercises"
         menu:
           - href: In-class_Ex/In-class_Ex01/In-class_Ex01.qmd

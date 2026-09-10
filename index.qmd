@@ -36,6 +36,11 @@ Geospatial data wrangling with sf and choropleth mapping with tmap. Projections,
 Spatial point patterns with spatstat. Nearest neighbour tests, kernel density, the G, F, K and L functions, and why the null hypothesis is the hard part.
 :::
 
+::: {.g-col-12 .g-col-md-4}
+### [Hands-on Ex03](Hands-on_Ex/Hands-on_Ex03/Hands-on_Ex03.qmd)
+Forest fires in Bangka Belitung across 2023. Spatio-temporal KDE with sparr, the space-time K function with stpp, and what a bootstrap says about bandwidths chosen by rule of thumb.
+:::
+
 :::
 
 ## In-class Exercises
