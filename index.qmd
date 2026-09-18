@@ -41,6 +41,10 @@ Spatial point patterns with spatstat. Nearest neighbour tests, kernel density, t
 Forest fires in Bangka Belitung across 2023. Spatio-temporal KDE with sparr, the space-time K function with stpp, and what a bootstrap says about bandwidths chosen by rule of thumb.
 :::
 
+::: {.g-col-12 .g-col-md-4}
+### [Hands-on Ex04](Hands-on_Ex/Hands-on_Ex04/Hands-on_Ex04.qmd)
+Contiguity, distance and k nearest neighbour weights for Hunan's counties, and four ways to compute a spatial lag of GDP per capita.
+:::
 :::
 
 ## In-class Exercises

@@ -1,0 +1,774 @@
+---
+title: "Hands-on Ex04: Spatial Weights and Applications"
+subtitle: "County-level GDP per capita in Hunan, 2012"
+author: "Meng Tingyu"
+date: "September 18, 2026"
+date-modified: "last-modified"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
+    fig-align: center
+execute:
+  eval: true
+  echo: true
+  warning: false
+  message: false
+  freeze: true
+---
+
+## What this exercise is about
+
+The last two exercises were about points, where every observation had its own exact location. This one moves to areal data, where the unit of observation is a polygon and the question becomes which polygons count as neighbours of each other. Almost every method later in the course, from Moran's I to hot spot analysis to spatial regression, needs that neighbour structure written down first, and the spatial weights matrix is where it lives.
+
+The study area is Hunan province in China, split into 88 county-level units. The variable I follow the whole way through is GDP per capita in 2012 (GDPPC, in RMB). I build neighbour lists in three different ways, contiguity, fixed distance and k nearest neighbours, turn them into weights, and then use the weights to compute four kinds of spatially lagged variables.
+
+## Setting up
+
+### Packages
+
+Five packages are used. **sf** handles the polygons, **spdep** builds the neighbour lists and weights, **tmap** draws the maps, **tidyverse** covers the joins and the `map_dbl()` call later on, and **knitr** is only there for `kable()`.
+
+```{r}
+pacman::p_load(sf, spdep, tmap, tidyverse, knitr)
+```
+
+### Importing the county boundaries
+
+The boundary layer is an ESRI shapefile. I keep it under `data/geospatial` like in the previous exercises instead of the `chap08/data` path the course notes use.
+
+```{r}
+hunan <- st_read(dsn = "data/geospatial", 
+                 layer = "Hunan")
+```
+
+There are 88 polygons and 7 attribute fields, and the coordinates are plain longitude and latitude in WGS 84. That last point matters later, because every distance calculation has to be told the coordinates are not projected.
+
+### Importing the 2012 indicators
+
+```{r}
+hunan2012 <- read_csv("data/aspatial/Hunan_2012.csv")
+```
+
+The csv has 29 columns of county indicators. I only need `GDPPC` for this exercise, and the data dictionary that came with the files confirms it is GDP per capita in RMB.
+
+### Joining the two
+
+```{r}
+hunan <- left_join(hunan, hunan2012, by = "County") %>%
+  select(NAME_2, ID_3, NAME_3, ENGTYPE_3, County, GDPPC)
+```
+
+::: {.callout-warning}
+## Two small changes from the course code
+
+The notes run `left_join(hunan, hunan2012)` without a `by` argument and then `select(1:4, 7, 15)`. Both work, but both are fragile. Without `by`, dplyr joins on every column name the two tables happen to share, which today is only `County`, but it would quietly change if the csv ever gained a column with the same name as one in the shapefile. Selecting by position has the same problem, since columns 7 and 15 are `County` and `GDPPC` only because of the current column order in the csv. Naming both makes the intent readable and keeps it from breaking silently.
+:::
+
+```{r}
+sum(is.na(hunan$GDPPC))
+```
+
+No county is left without a value after the join, so the names in the two files line up exactly.
+
+## A first look at GDP per capita
+
+Before building any weights I want to see what the variable looks like on the map, because the lagged versions later only make sense against this starting point.
+
+```{r}
+summary(hunan$GDPPC)
+```
+
+The spread is wide. The poorest county sits at 8,497 RMB and the richest at 88,656 RMB, more than ten times as much, and the mean is pulled well above the median by a handful of very rich counties.
+
+```{r}
+#| fig-width: 12
+#| fig-height: 6
+basemap <- tm_shape(hunan) +
+  tm_polygons() +
+  tm_text("NAME_3", size = 0.5)
+
+gdppc <- tm_shape(hunan) +
+  tm_polygons(fill = "GDPPC",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 5,
+                                              values = "brewer.or_rd"),
+              fill.legend = tm_legend(title = "GDPPC (RMB)",
+                                      position = tm_pos_in("left", "bottom"),
+                                      frame = FALSE)) +
+  tm_layout(frame = FALSE)
+
+tmap_arrange(basemap, gdppc, asp = 1, ncol = 2)
+```
+
+::: {.callout-note}
+## tmap v4 translation
+
+The course code is written for tmap v3, using `qtm(hunan, "GDPPC")` with `tm_layout(legend.position = ...)`. On v4.4 the legend position belongs to the layer through `fill.legend = tm_legend(position = tm_pos_in(...))`, and I also switched from `qtm()` to `tm_polygons()` so I could set the classification explicitly. I used quantile classes here because with a variable this skewed, the default pretty breaks put most of the province into one or two colours.
+:::
+
+The richest counties form a block in the east centre of the province around Changsha, Zhuzhou and Xiangtan, with Changsha itself at the top. A second group of fairly well off counties runs up to the north east around Yueyang, and there is another around Chenzhou in the south east. The whole western side, Xiangxi, Huaihua and most of Shaoyang, is in the lowest classes. A few counties break the pattern completely. Lengshuijiang and Zixing both sit above 60,000 RMB but are surrounded by much poorer neighbours, and those two will keep coming up once the lagged variables are computed.
+
+## Contiguity based neighbours
+
+`poly2nb()` builds a neighbour list from shared boundaries. The `queen` argument decides what counts as shared. With `queen = TRUE`, which is the default, two polygons are neighbours if they touch at even a single point. With `queen = FALSE` the rook rule applies and they must share an edge of some length.
+
+### Queen contiguity
+
+```{r}
+wm_q <- poly2nb(hunan, queen = TRUE)
+summary(wm_q)
+```
+
+All 88 counties are in the list and there are 448 neighbour links in total, so the average county has about 5.09 neighbours. The distribution of link counts is fairly tight, with most counties having between 4 and 7 neighbours. Regions 30 and 65 are the least connected with one neighbour each, and region 85 is the most connected with 11.
+
+```{r}
+hunan$NAME_3[c(30, 65, 85)]
+```
+
+The two single-neighbour counties are Xinhuang and Linxiang, and both sit on the provincial border. Xinhuang is on the far west edge next to Guizhou and Linxiang is in the north east corner next to Hubei and Jiangxi. They are not isolated in reality, it is just that their other neighbours are outside the study area. That edge effect is worth remembering, since any border county will look less connected than it really is. Taoyuan, with 11 neighbours, is simply a large county in the middle of the Changde area.
+
+Each element of the neighbour list holds the row indices of that polygon's neighbours.
+
+```{r}
+wm_q[[1]]
+```
+
+Polygon 1 has five neighbours. To see which counties these are, I first check the name of polygon 1 itself and then look up the five indices.
+
+```{r}
+hunan$County[1]
+```
+
+```{r}
+hunan$NAME_3[c(2, 3, 4, 57, 85)]
+```
+
+So Anxiang borders Hanshou, Jinshi, Li, Nan and Taoyuan. The same indices can pull out the neighbours' GDPPC.
+
+```{r}
+nb1 <- wm_q[[1]]
+nb1 <- hunan$GDPPC[nb1]
+nb1
+```
+
+These five values, 20981, 34592, 24473, 21311 and 22879, are what Anxiang's spatial lag will be built from later on.
+
+The whole list can be printed with `str()`. It is long, but I left it in because it is the most direct way to see that the object is nothing more than a list of integer vectors with a few attributes attached.
+
+```{r}
+str(wm_q)
+```
+
+The attributes at the bottom say the list is of type queen, is symmetric, and forms one connected component covering all 88 counties.
+
+### Rook contiguity
+
+```{r}
+wm_r <- poly2nb(hunan, queen = FALSE)
+summary(wm_r)
+```
+
+The rook version has 440 links instead of 448 and an average of exactly 5 neighbours. Xinhuang and Linxiang still have one neighbour each and Taoyuan is still the most connected, but now with 10.
+
+### Where queen and rook disagree
+
+Eight links is a small difference, and since every link is stored in both directions it really means four pairs of counties. I wanted to know which ones they are.
+
+```{r}
+qr_diff <- tibble(
+  County = hunan$NAME_3,
+  queen_only = map_chr(seq_along(wm_q), function(i) {
+    paste(hunan$NAME_3[setdiff(wm_q[[i]], wm_r[[i]])], collapse = ", ")
+  })
+) %>%
+  filter(queen_only != "")
+
+kable(qr_diff, col.names = c("County", "Neighbour under queen only"))
+```
+
+The four pairs are Anxiang and Hanshou, Anren and Zixing, Yongxing and Yanling, and Nan and Taoyuan. Each of these pairs only meets at a corner point, which is why the rook rule drops them. The Nan and Taoyuan pair explains why Taoyuan falls from 11 to 10 neighbours. For county boundaries drawn along rivers and ridges, true corner contacts like these are rare, so the choice between queen and rook barely matters for Hunan.
+
+### Visualising the contiguity weights
+
+A connectivity graph draws a line from each polygon to each of its neighbours, so it needs a point to represent every polygon. The usual choice is the centroid.
+
+::: {.callout-tip}
+## A leftover from another tutorial
+
+The course text talks about mapping `st_centroid` over the geometry column of `us.bound`. That object does not exist anywhere in this exercise. The explanation seems to have been copied from a US example, and the code itself correctly uses `hunan$geometry`, so I just followed the code.
+:::
+
+`map_dbl()` from purrr applies `st_centroid()` to each geometry in turn and returns a numeric vector. Taking element `[[1]]` of each centroid gives the longitude, and `[[2]]` gives the latitude.
+
+```{r}
+longitude <- map_dbl(hunan$geometry, ~st_centroid(.x)[[1]])
+```
+
+```{r}
+latitude <- map_dbl(hunan$geometry, ~st_centroid(.x)[[2]])
+```
+
+`cbind()` puts the two into a single matrix.
+
+```{r}
+coords <- cbind(longitude, latitude)
+```
+
+```{r}
+head(coords)
+```
+
+The first row, 112.15 E and 29.44 N, is Anxiang, which is where it should be in the north of the province.
+
+::: {.callout-note}
+## Why not just st_centroid(hunan)
+
+I tried `st_coordinates(st_centroid(hunan))` as a shortcut. Because the layer is in geographic coordinates and s2 is on by default, sf computes that one on the sphere, while `st_centroid()` on a single geometry (the `.x` inside `map_dbl()`) is planar. The two sets of centroids are close but not identical, and even a small shift would stop the later output from matching the course, so I kept the course method.
+:::
+
+#### Queen contiguity map
+
+```{r}
+#| fig-width: 7
+#| fig-height: 7
+plot(hunan$geometry, border = "lightgrey")
+plot(wm_q, coords, pch = 19, cex = 0.6, add = TRUE, col = "red")
+```
+
+#### Rook contiguity map
+
+```{r}
+#| fig-width: 7
+#| fig-height: 7
+plot(hunan$geometry, border = "lightgrey")
+plot(wm_r, coords, pch = 19, cex = 0.6, add = TRUE, col = "red")
+```
+
+#### Both side by side
+
+```{r}
+#| fig-width: 12
+#| fig-height: 6
+par(mfrow = c(1, 2))
+plot(hunan$geometry, border = "lightgrey", main = "Queen Contiguity")
+plot(wm_q, coords, pch = 19, cex = 0.6, add = TRUE, col = "red")
+plot(hunan$geometry, border = "lightgrey", main = "Rook Contiguity")
+plot(wm_r, coords, pch = 19, cex = 0.6, add = TRUE, col = "red")
+```
+
+Side by side, the two graphs are almost impossible to tell apart. Knowing where to look helps, for example the short diagonal link between Anxiang and Hanshou at the top of the Changde area is there on the left and missing on the right. The graphs also show the connectivity is fairly even across the province, because county sizes in Hunan do not vary that much.
+
+::: {.callout-important}
+## My takeaway
+
+Contiguity is the simplest definition of a neighbour and it needs no parameters, which is its main appeal. What surprised me is how much of the structure is set by the study area boundary rather than by geography. The two least connected counties are only least connected because the data stops at the provincial line.
+:::
+
+## Distance based neighbours
+
+`dnearneigh()` defines neighbours as every point within a distance band between a lower bound `d1` and an upper bound `d2`. When the coordinates are longitude and latitude and `longlat = TRUE` is set, the distances are great circle distances in kilometres on the WGS 84 ellipsoid.
+
+### Choosing the cut-off distance
+
+If the upper bound is too small, some counties end up with no neighbours at all. A safe choice is the largest distance any county has to its single nearest neighbour, which guarantees everyone gets at least one. Four steps get there. `knearneigh()` finds the nearest neighbour of each point, `knn2nb()` turns that into a neighbour list, `nbdists()` returns the length of each link, and `unlist()` flattens the result into a plain vector.
+
+```{r}
+k1 <- knn2nb(knearneigh(coords))
+k1dists <- unlist(nbdists(k1, coords, longlat = TRUE))
+summary(k1dists)
+```
+
+The nearest neighbour distances run from 24.79 km to 61.79 km, with a median of 38.01 km. Rounding the maximum up to 62 km gives the cut-off.
+
+```{r}
+far <- which.max(k1dists)
+c(hunan$NAME_3[far], hunan$NAME_3[k1[[far]]])
+```
+
+The longest of these first neighbour links belongs to `r hunan$NAME_3[far]`, whose nearest neighbour was found to be `r hunan$NAME_3[k1[[far]]]`.
+
+::: {.callout-warning}
+## knearneigh() was not told the coordinates are in degrees
+
+`nbdists()` gets `longlat = TRUE`, but `knearneigh()` in the line above it does not. Since `coords` is a plain matrix, `knearneigh()` assumes the numbers are planar and ranks neighbours by straight line distance in degrees. At Hunan's latitude one degree of longitude is roughly 88 percent of a degree of latitude, so an east west neighbour can look further away than it really is. I reran the step with `longlat = TRUE` to see if it changes anything.
+
+```{r}
+k1_ll <- knn2nb(knearneigh(coords, longlat = TRUE))
+k1_ll_dists <- unlist(nbdists(k1_ll, coords, longlat = TRUE))
+summary(k1_ll_dists)
+```
+
+```{r}
+changed <- which(sapply(seq_along(k1), function(i) k1[[i]] != k1_ll[[i]]))
+tibble(County = hunan$NAME_3[changed],
+       degrees = hunan$NAME_3[unlist(k1[changed])],
+       great_circle = hunan$NAME_3[unlist(k1_ll[changed])]) %>%
+  kable(col.names = c("County", "Nearest in degrees", "Nearest by great circle"))
+```
+
+It does. `r length(changed)` counties get a different nearest neighbour, and the largest nearest neighbour distance drops to `r round(max(k1_ll_dists), 2)` km, which belongs to `r hunan$NAME_3[which.max(k1_ll_dists)]`. For this exercise it makes no practical difference, because 62 km still covers every county either way. It would matter in a case where the cut-off is tight, so from now on I would pass `longlat = TRUE` to both functions.
+:::
+
+### Fixed distance weight matrix
+
+```{r}
+wm_d62 <- dnearneigh(coords, 0, 62, longlat = TRUE)
+wm_d62
+```
+
+The course asks what the average number of links of 3.681818 means. The list has 324 links spread over 88 counties, and 324 divided by 88 is 3.68, so within 62 km a county has on average 3.68 other county centroids. That is noticeably fewer than the 5.09 neighbours under queen contiguity. The 62 km threshold was chosen only to make sure nobody is left out, not to match the contiguity structure, and many counties that share a border have centroids further apart than that.
+
+```{r}
+str(wm_d62)
+```
+
+The attributes record the distance band from 0 to 62, with both bounds inclusive ("GE" and "LE"), and the list is symmetric, which a distance band always is.
+
+Another way to look at the structure is to cross tabulate each county against its number of neighbours with `card()`.
+
+```{r}
+table(hunan$County, card(wm_d62))
+```
+
+That table is hard to read with 88 rows, so I also collapsed it into counts.
+
+```{r}
+table(card(wm_d62))
+```
+
+Six counties have exactly one neighbour within 62 km, namely Anhua, Linxiang, Shimen, Xinhuang, Yizhang and Yuanling, while seven have six. The single neighbour group is mostly large counties or counties on the provincial edge, where centroids are naturally far apart. The six neighbour group includes places like Hengyang, Hengshan and Shuangfeng in the middle of the province, and Jishou, Guzhang and Mayang in the west, where the counties are small and packed together.
+
+```{r}
+n_comp <- n.comp.nb(wm_d62)
+n_comp$nc
+```
+
+```{r}
+table(n_comp$comp.id)
+```
+
+There is one connected component containing all 88 counties, so even with a thin neighbour structure, every county can be reached from every other by following links.
+
+#### Plotting the fixed distance weights
+
+```{r}
+#| fig-width: 7
+#| fig-height: 7
+plot(hunan$geometry, border = "lightgrey")
+plot(wm_d62, coords, add = TRUE)
+plot(k1, coords, add = TRUE, col = "red", length = 0.08)
+```
+
+The red lines are the first nearest neighbour links and the black lines are all links within 62 km. Drawn on top of each other it is hard to separate them, so here they are side by side.
+
+```{r}
+#| fig-width: 12
+#| fig-height: 6
+par(mfrow = c(1, 2))
+plot(hunan$geometry, border = "lightgrey", main = "1st nearest neighbours")
+plot(k1, coords, add = TRUE, col = "red", length = 0.08)
+plot(hunan$geometry, border = "lightgrey", main = "Distance link")
+plot(wm_d62, coords, add = TRUE, pch = 19, cex = 0.6)
+```
+
+The nearest neighbour graph on the left is a set of small disconnected fragments, since every county only points to one other. The 62 km graph on the right fills in, but it is visibly patchier than the contiguity graph. The dense patches are where counties are small, and the sparse gaps are around the big counties such as Yuanling and Anhua.
+
+### Adaptive distance weight matrix
+
+The trouble with a fixed distance is what the course notes point out. Where polygons are small and close together, each one gets many neighbours, and where they are large, each gets very few. Fixing the number of neighbours instead of the distance avoids that, which is what k nearest neighbours does.
+
+```{r}
+knn6 <- knn2nb(knearneigh(coords, k = 6))
+knn6
+```
+
+Every county now has exactly six neighbours, 528 links in total, but the output also says the list is non-symmetric. Being one of my six nearest does not make me one of yours.
+
+```{r}
+str(knn6)
+```
+
+The notes mention that symmetry can be imposed, but the code does not show it, so I tried it.
+
+```{r}
+knn6_sym <- knn2nb(knearneigh(coords, k = 6), sym = TRUE)
+knn6_sym
+```
+
+With `sym = TRUE`, any one-way link is made two-way, so the number of links rises and the average goes up to `r round(mean(card(knn6_sym)), 2)`. The guarantee of exactly six is gone, but the list becomes symmetric, which some later methods prefer.
+
+To see how lopsided the plain version is, I counted how often each county appears in someone else's list of six.
+
+```{r}
+indeg <- tabulate(unlist(knn6), nbins = length(knn6))
+summary(indeg)
+```
+
+A county is picked by as few as `r min(indeg)` others (`r paste(hunan$NAME_3[indeg == min(indeg)], collapse = ", ")`) and by as many as `r max(indeg)` (`r paste(hunan$NAME_3[indeg == max(indeg)], collapse = ", ")`). Counties on the edge tend to be picked rarely because they have nobody on their outer side, while counties with many small counties around them get picked a lot.
+
+#### Plotting the k nearest neighbours
+
+```{r}
+#| fig-width: 7
+#| fig-height: 7
+plot(hunan$geometry, border = "lightgrey")
+plot(knn6, coords, pch = 19, cex = 0.6, add = TRUE, col = "red")
+```
+
+This graph is the densest of all so far and the most even. Around the western edge, some links now reach quite far across other counties just to make up the count of six.
+
+::: {.callout-important}
+## My takeaway
+
+Fixed distance and k nearest neighbours trade off different things. The fixed band keeps the meaning of "neighbour" constant in kilometres but lets the number of neighbours swing from one to six. k nearest keeps the number constant but lets the distance stretch, and it gives up symmetry. Neither is right in general, and for Hunan, where county sizes are fairly similar, contiguity already does a reasonable job of both.
+:::
+
+## Weights based on inverse distance
+
+Everything so far only says whether two counties are neighbours. Inverse distance weighting also says how strong the relationship is, by giving closer neighbours more weight. I kept the queen neighbour list and replaced each link with one over its length.
+
+```{r}
+dist <- nbdists(wm_q, coords, longlat = TRUE)
+ids <- lapply(dist, function(x) 1/(x))
+```
+
+The full `ids` list has 88 elements, so I only print the first five to show the structure.
+
+```{r}
+ids[1:5]
+```
+
+Anxiang's five values match its five queen neighbours in order. The largest, 0.039, is Jinshi, which is only about 25.5 km away, while Taoyuan at 0.011 is the furthest at about 87 km. The unit here is inverse kilometres, so the numbers are small, but only their relative size matters.
+
+## Row-standardised weights
+
+A neighbour list still needs weights before it can be used. The most common choice is `style = "W"`, which gives each neighbour of a county the same share, one over the number of neighbours, so every row sums to 1. The spatial lag then becomes a simple average of the neighbours' values. The drawback the notes mention is that border counties average over fewer neighbours, which could over or under state the relationship at the edges. `style = "B"` is the binary alternative.
+
+```{r}
+rswm_q <- nb2listw(wm_q, style = "W", zero.policy = TRUE)
+rswm_q
+```
+
+In the constants summary, `n` is the number of counties and `nn` is `n` squared. `S0` is the sum of all weights, which is exactly 88 here because each of the 88 rows sums to 1. `S1` and `S2` are sums of squared weights that the Moran's I variance formula will use in the next chapter.
+
+::: {.callout-tip}
+## About zero.policy
+
+`zero.policy = TRUE` lets `nb2listw()` accept counties with no neighbours instead of stopping with an error. Queen contiguity for Hunan has no such county, so here it makes no difference. I think the default error is actually the safer behaviour, because a county with no neighbours usually means something went wrong with the geometry, and it is better to find out.
+:::
+
+```{r}
+rswm_q$weights[10]
+```
+
+::: {.callout-warning}
+## This is county 10, not county 1
+
+The notes say this shows "the first polygon's eight neighbors", but the code indexes element 10. Polygon 1, Anxiang, only has five neighbours. Element 10 is Anren, which has eight, so each gets 0.125, and when the lag is computed each of Anren's neighbours will contribute one eighth of its GDPPC.
+:::
+
+The same approach produces a distance weighted version by passing `ids` through `glist`.
+
+```{r}
+rswm_ids <- nb2listw(wm_q, glist = ids, style = "B", zero.policy = TRUE)
+rswm_ids
+```
+
+```{r}
+rswm_ids$weights[1]
+```
+
+```{r}
+summary(unlist(rswm_ids$weights))
+```
+
+The weights run from 0.0082 to 0.0403. In kilometre terms that is a range from about 122 km, between Sangzhi and Taoyuan, down to about 25 km, between Shaoshan and Xiangxiang.
+
+::: {.callout-warning}
+## Style B is not row-standardised
+
+The notes call `rswm_ids` a row standardised distance weight matrix, but `style = "B"` keeps the weights exactly as supplied. The printed weights for Anxiang are identical to `ids[[1]]`, and `S0` is 8.79 rather than 88, so the rows clearly do not sum to 1. To actually row standardise inverse distance weights, the style has to be `"W"`.
+
+```{r}
+rswm_ids_w <- nb2listw(wm_q, glist = ids, style = "W", zero.policy = TRUE)
+round(rswm_ids_w$weights[[1]], 3)
+summary(sapply(rswm_ids_w$weights, sum))
+```
+
+Now every row sums to 1, and Anxiang's weights are no longer equal. Jinshi, the nearest, takes about 35 percent of the total and Taoyuan, the furthest, about 10 percent, instead of 20 percent each under plain `"W"`.
+:::
+
+## Applying the spatial weights
+
+With weights in hand, the neighbour structure can be applied to a variable. I computed four versions for GDPPC.
+
+1. Spatial lag with row-standardised weights
+2. Spatial lag as a sum of neighbouring values
+3. Spatial window average
+4. Spatial window sum
+
+For comparing maps I set up a small helper with fixed class breaks. The notes point out that `qtm()` is not ideal for comparison, and the main reason is that each map gets its own classification, so the same colour means a different value on each map. Fixing the breaks keeps the colours comparable.
+
+```{r}
+avg_breaks <- c(8000, 15000, 20000, 25000, 30000, 40000, 90000)
+sum_breaks <- c(20000, 70000, 100000, 130000, 160000, 200000, 440000)
+
+map_var <- function(var, title, breaks) {
+  tm_shape(hunan) +
+    tm_polygons(fill = var,
+                fill.scale = tm_scale_intervals(breaks = breaks,
+                                                values = "brewer.or_rd"),
+                fill.legend = tm_legend(title = title,
+                                        position = tm_pos_in("left", "bottom"),
+                                        frame = FALSE),
+                col = "grey60", lwd = 0.3) +
+    tm_layout(frame = FALSE)
+}
+```
+
+::: {.callout-note}
+## Column names without spaces
+
+The course names the new columns `lag GDPPC`, `lag_sum GDPPC` and so on, with a space in the middle. R accepts that, but every later reference then needs backticks or quotes, and it is easy to get wrong. I used underscores throughout, `lag_GDPPC`, `lag_sum_GDPPC`, `w_avg_GDPPC` and `w_sum_GDPPC`.
+:::
+
+### Spatial lag with row-standardised weights
+
+`lag.listw()` multiplies the weights by the variable, which with row-standardised weights gives the average GDPPC of each county's neighbours.
+
+```{r}
+GDPPC.lag <- lag.listw(rswm_q, hunan$GDPPC)
+GDPPC.lag
+```
+
+The course then asks whether the meaning of this lag is clear now. The first value makes it easy to check by hand. Anxiang's five neighbours have GDPPC of 20981, 34592, 24473, 21311 and 22879, which add up to 124,236, and dividing by five gives 24,847.2, exactly the first value above. So the lag is simply what a typical neighbour of the county earns, with the county's own value left out.
+
+```{r}
+lag.list <- list(hunan$NAME_3, lag.listw(rswm_q, hunan$GDPPC))
+lag.res <- as.data.frame(lag.list)
+colnames(lag.res) <- c("NAME_3", "lag_GDPPC")
+hunan <- left_join(hunan, lag.res, by = "NAME_3")
+```
+
+```{r}
+head(hunan)
+```
+
+For the first six counties, which all belong to Changde, own GDPPC and neighbour average are fairly close. Jinshi is the exception, at 34,592 against a neighbour average of 24,143.
+
+```{r}
+#| fig-width: 12
+#| fig-height: 6
+gdppc <- map_var("GDPPC", "GDPPC", avg_breaks)
+lag_gdppc <- map_var("lag_GDPPC", "Lag GDPPC", avg_breaks)
+tmap_arrange(gdppc, lag_gdppc, asp = 1, ncol = 2)
+```
+
+The lagged map is much smoother. The east centre block around Changsha, Zhuzhou and Xiangtan becomes one continuous area in the top classes, the north east around Yueyang joins it, and the west turns into an almost uniform band of low values. The isolated rich counties disappear, since their own value is not part of their lag.
+
+```{r}
+tibble(variable = c("GDPPC", "lag_GDPPC"),
+       sd = c(sd(hunan$GDPPC), sd(hunan$lag_GDPPC)),
+       min = c(min(hunan$GDPPC), min(hunan$lag_GDPPC)),
+       max = c(max(hunan$GDPPC), max(hunan$lag_GDPPC))) %>%
+  kable(digits = 0)
+```
+
+The standard deviation falls from about 15,000 to about 9,300, and the top value drops from 88,656 to 55,158. Averaging over neighbours pulls extremes toward the middle, which is what the smoother map shows.
+
+The most interesting counties are the ones where own value and lag disagree most.
+
+```{r}
+hunan %>%
+  st_drop_geometry() %>%
+  mutate(gap = GDPPC - lag_GDPPC) %>%
+  arrange(gap) %>%
+  slice(c(1:3, (n() - 2):n())) %>%
+  select(County, NAME_2, GDPPC, lag_GDPPC, gap) %>%
+  kable(digits = 0)
+```
+
+Pingjiang has the highest lag in the whole province at 55,158, even though its own GDPPC is only 17,252. It sits next to Changsha, Liuyang, Miluo and Yueyang, so it is a poor county surrounded by rich ones. Lengshuijiang is the opposite case, earning 64,257 while its neighbours average only 14,419. Changsha and Zixing are also far above their surroundings, but for Changsha the neighbours are rich as well, so the gap looks large mostly because Changsha itself is so extreme.
+
+```{r}
+cor(hunan$GDPPC, hunan$lag_GDPPC)
+```
+
+The correlation between a county's GDPPC and its neighbours' average is about 0.48. Rich counties tend to have rich neighbours, which is the first hint of positive spatial autocorrelation that the next exercise will test properly.
+
+### Spatial lag as a sum of neighbouring values
+
+With binary weights of 1 for every neighbour, the lag becomes a sum instead of an average. `lapply()` goes through the queen list and replaces every neighbour index with 1, and `nb2listw()` takes that through `glist`.
+
+```{r}
+b_weights <- lapply(wm_q, function(x) 0*x + 1)
+b_weights2 <- nb2listw(wm_q, 
+                       glist = b_weights, 
+                       style = "B")
+b_weights2
+```
+
+`S0` is now 448, simply the number of links, since each carries a weight of 1.
+
+```{r}
+lag_sum <- list(hunan$NAME_3, lag.listw(b_weights2, hunan$GDPPC))
+lag.res <- as.data.frame(lag_sum)
+colnames(lag.res) <- c("NAME_3", "lag_sum_GDPPC")
+```
+
+```{r}
+lag_sum
+```
+
+Answering the course question again with Anxiang, its sum lag is 124,236, which is the same total I added up by hand above before dividing by five. The sum lag is the total GDPPC of all neighbours, without averaging.
+
+```{r}
+hunan <- left_join(hunan, lag.res, by = "NAME_3")
+```
+
+```{r}
+#| fig-width: 12
+#| fig-height: 6
+lag_sum_gdppc <- map_var("lag_sum_GDPPC", "Lag sum GDPPC", sum_breaks)
+tmap_arrange(gdppc, lag_sum_gdppc, asp = 1, ncol = 2)
+```
+
+The two maps use different breaks here since a sum of several counties is on a different scale. The sum map looks quite unlike the average map. Xiangtan has the highest value at 404,456, because it has nine neighbours and most of them are rich. Taoyuan is in the top class too with 244,850, even though its neighbours are only average, simply because it has eleven of them. At the bottom, Xinhuang's sum of 20,518 is just the GDPPC of its single neighbour, Zhijiang.
+
+```{r}
+cor(hunan$lag_sum_GDPPC, card(wm_q))
+```
+
+The sum lag correlates about 0.69 with the number of neighbours. That is why I would be careful reading this map as a picture of wealth, because it mixes how rich the neighbours are with how many there are. The notes describe binary weights as the more robust option, but at least as a descriptive map, the plain sum reflects county geometry at least as much as economics.
+
+### Spatial window average
+
+The window average is the row-standardised lag with the county itself added to its own neighbourhood. `include.self()` adds each county's own index to its neighbour list.
+
+```{r}
+wm_qs <- include.self(wm_q)
+wm_qs
+```
+
+The number of links rises from 448 to 536, exactly 88 more, one per county, and the average number of links goes from 5.09 to 6.09.
+
+```{r}
+wm_qs[[1]]
+```
+
+Anxiang now lists six neighbours, and the extra one is 1, itself.
+
+```{r}
+wm_qs <- nb2listw(wm_qs)
+wm_qs
+```
+
+`nb2listw()` defaults to `style = "W"`, so every county and its neighbours now share the weight equally. For Anxiang that is one sixth each.
+
+```{r}
+lag_w_avg_gpdpc <- lag.listw(wm_qs, 
+                             hunan$GDPPC)
+lag_w_avg_gpdpc
+```
+
+Anxiang's window average of 24,650.5 checks out. Its own 23,667 plus the neighbours' total of 124,236 is 147,903, and dividing by six gives 24,650.5.
+
+```{r}
+lag.list.wm_qs <- list(hunan$NAME_3, lag.listw(wm_qs, hunan$GDPPC))
+lag_wm_qs.res <- as.data.frame(lag.list.wm_qs)
+colnames(lag_wm_qs.res) <- c("NAME_3", "w_avg_GDPPC")
+```
+
+```{r}
+hunan <- left_join(hunan, lag_wm_qs.res, by = "NAME_3")
+```
+
+```{r}
+hunan %>%
+  st_drop_geometry() %>%
+  select(County, lag_GDPPC, w_avg_GDPPC) %>%
+  kable(digits = 2)
+```
+
+::: {.callout-tip}
+## Dropping the geometry before kable()
+
+The course table has a geometry column hanging off the right side full of `POLYGON ((112.0625 ...` strings. `select()` on an sf object always keeps the geometry, so the table picks it up. Adding `st_drop_geometry()` first removes it.
+:::
+
+```{r}
+#| fig-width: 12
+#| fig-height: 6
+w_avg_gdppc <- map_var("w_avg_GDPPC", "Window average GDPPC", avg_breaks)
+tmap_arrange(lag_gdppc, w_avg_gdppc, asp = 1, ncol = 2)
+```
+
+Across most of the province the two maps are nearly the same, because for a county that looks like its neighbours, adding itself barely moves the average. The differences are concentrated in the counties from the gap table. Lengshuijiang jumps from 14,419 to 26,879 once its own value is included, and Changsha rises from 41,364 to 48,120. Pingjiang goes the other way, from 55,158 to 47,577, so it is no longer the top county, and Wangcheng takes that place at 49,225. The window average sits somewhere between the raw map and the lag, still smooth but without completely ignoring the county itself.
+
+### Spatial window sum
+
+The window sum is the sum version of the same idea, the county's own value plus all its neighbours', with binary weights instead of row-standardised ones.
+
+```{r}
+wm_qs <- include.self(wm_q)
+wm_qs
+```
+
+```{r}
+b_weights <- lapply(wm_qs, function(x) 0*x + 1)
+b_weights[1]
+```
+
+Anxiang again has six entries, all equal to 1.
+
+```{r}
+b_weights2 <- nb2listw(wm_qs, 
+                       glist = b_weights, 
+                       style = "B")
+b_weights2
+```
+
+```{r}
+w_sum_gdppc <- list(hunan$NAME_3, lag.listw(b_weights2, hunan$GDPPC))
+w_sum_gdppc
+```
+
+```{r}
+w_sum_gdppc.res <- as.data.frame(w_sum_gdppc)
+colnames(w_sum_gdppc.res) <- c("NAME_3", "w_sum_GDPPC")
+```
+
+```{r}
+hunan <- left_join(hunan, w_sum_gdppc.res, by = "NAME_3")
+```
+
+```{r}
+hunan %>%
+  st_drop_geometry() %>%
+  select(County, lag_sum_GDPPC, w_sum_GDPPC) %>%
+  kable()
+```
+
+Each window sum is the sum lag plus the county's own GDPPC, so Anxiang goes from 124,236 to 147,903. The ranking barely changes, with Xiangtan still at the top at 431,516. The biggest relative jumps are for counties with few neighbours, like Linxiang, which more than doubles from 26,360 to 58,257 because its own GDPPC is larger than its one neighbour's.
+
+```{r}
+#| fig-width: 12
+#| fig-height: 6
+w_sum_gdppc_map <- map_var("w_sum_GDPPC", "Window sum GDPPC", sum_breaks)
+tmap_arrange(lag_sum_gdppc, w_sum_gdppc_map, asp = 1, ncol = 2)
+```
+
+With both maps on the same breaks, the window sum map is mostly a shifted version of the sum lag map, with a few counties moving up a class. It still has the same problem as the sum lag, since a county with many neighbours will score high almost regardless of how rich they are.
+
+::: {.callout-important}
+## My takeaway
+
+The four lags differ on two separate choices, whether the county's own value is included and whether neighbours are averaged or added up. Averaging gives a number on the same scale as GDPPC that can be compared across counties. Summing gives a number that also depends on how many neighbours a county has, which for irregular polygons is a property of the map rather than of the economy. For describing spatial pattern, I would use the averaged versions.
+:::
+
+## Wrapping up
+
+For Hunan, the three neighbour definitions ended up giving a queen list with about 5 neighbours per county, a 62 km distance band with fewer than 4, and a k nearest list with exactly 6 but no symmetry. Queen and rook differ by only four corner contacts. Applied to GDP per capita, the row-standardised lag shows one continuous high value region around Changsha, Zhuzhou and Xiangtan extending north east toward Yueyang, and a low value belt across the west. County GDPPC correlates about 0.48 with its neighbours' average, which suggests the pattern is not random.
