@@ -60,6 +60,11 @@ Extensions of the hands-on work into interpretation. Less about getting the code
 Coming soon.
 :::
 
+::: {.g-col-12 .g-col-md-4}
+### [In-class Ex04](Hands-on_Ex/Hands-on_Ex04/In-class_Ex04.qmd)
+Geographically weighted summary statistics for GDP per capita in Hunan. Choosing an adaptive bandwidth by cross-validation and AICc, then mapping local means to see where the county-level picture differs from the provincial average.
+:::
+
 :::
 
 ## Take-home Exercises
