@@ -5,7 +5,7 @@ project:
 website:
   title: "Geospatial Analytics"
   description: "Geospatial Analytics and Applications coursework portfolio by Meng Tingyu"
-  site-url: "https://geospatial-coursework.vercel.app"
+  site-url: "https://geospatial-mengtingyu.vercel.app"
   navbar:
     background: primary
     search: true
@@ -22,7 +22,7 @@ website:
             text: "Hands-on Ex03: Spatio-Temporal Point Patterns Analysis"
           - href: Hands-on_Ex/Hands-on_Ex04/Hands-on_Ex04.qmd
             text: "Hands-on Ex04: Spatial Weights and Applications"
-       - text: "In-class Exercises"
+      - text: "In-class Exercises"
         menu:
           - href: In-class_Ex/In-class_Ex01/In-class_Ex01.qmd
             text: "In-class Ex01"

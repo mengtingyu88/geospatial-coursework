@@ -1,1 +1,1 @@
-Sitemap: https://geospatial-coursework.vercel.app/sitemap.xml
+Sitemap: https://geospatial-mengtingyu.vercel.app/sitemap.xml
