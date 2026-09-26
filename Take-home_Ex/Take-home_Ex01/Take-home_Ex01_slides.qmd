@@ -1,0 +1,303 @@
+---
+title: "Where Fatal Crashes Concentrate on Bangkok's Major Roads"
+subtitle: "Take-home Exercise 1 · Executive Summary"
+author: "Meng Tingyu"
+date: "27 September 2026"
+format:
+  revealjs:
+    theme: [simple, slides.scss]
+    slide-number: true
+    toc: true
+    toc-depth: 2
+    toc-title: "Contents"
+    width: 1280
+    height: 720
+    footer: "Geospatial Analytics · Take-home Exercise 1 · Road traffic fatalities in the BMR, 2024"
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+pacman::p_load(sf, tidyverse, tmap, knitr)
+r       <- read_rds("data/rds/results.rds")
+bmr     <- read_rds("data/rds/bmr.rds")
+network <- read_rds("data/rds/network.rds")
+events  <- read_rds("data/rds/events.rds")
+terra_c <- "#B5533C"
+sage    <- "#7A8B6F"
+```
+
+## The question
+
+-   `r format(r$flow[["raw"]], big.mark = ",")` road deaths were recorded in Thailand between January and September 2024, `r format(r$bmr_deaths, big.mark = ",")` of them in the six provinces of the Bangkok Metropolitan Region (BMR).
+-   A crash can only happen on a road, so I measure intensity per km of road and distance along the road, using the network methods of `spNetwork`.
+
+::: {.takeaway}
+1.  Where on the major road network do fatal crashes concentrate?
+2.  Do they cluster along the road, and at what distance?
+3.  Do crashes close together on the road also happen close together in time?
+:::
+
+## Study area and data
+
+:::: {.columns}
+::: {.column width="55%"}
+```{r}
+#| fig-width: 6.5
+#| fig-height: 5.2
+events_map <- events %>%
+  mutate(status = if_else(snap_dist <= 50, "Within 50 m of a major road",
+                          "More than 50 m away"))
+tmap_mode("plot")
+tm_shape(bmr) +
+  tm_polygons(fill = "grey97", col = "grey60") +
+  tm_shape(network) +
+  tm_lines(col = "grey60", lwd = 0.5) +
+  tm_shape(events_map) +
+  tm_dots(fill = "status",
+          fill.scale = tm_scale_categorical(values = c("#9AA58F", "#B5533C")),
+          fill.legend = tm_legend(title = ""),
+          size = 0.12) +
+  tm_layout(frame = FALSE)
+```
+:::
+
+::: {.column width="45%"}
+```{r}
+tibble(Step = c("Deaths recorded in Thailand", "After removing duplicates",
+                "With crash coordinates", "Inside the BMR",
+                "Crash events (deaths merged)", "Within 50 m of a major road"),
+       n = format(unname(r$flow), big.mark = ",")) %>%
+  kable()
+```
+
+::: {.small}
+Fatalities from Kaggle (Department of Disease Control), province boundaries from geoBoundaries and `r format(r$net_km, big.mark = ",")` km of major roads from OpenStreetMap.
+:::
+:::
+::::
+
+## Data quality decides what the map can show
+
+:::: {.columns}
+::: {.column width="33%"}
+::: {.big-number}
+`r r$geo_pct`%
+:::
+::: {.big-label}
+of BMR deaths have crash coordinates
+:::
+
+::: {.big-number}
+`r r$unspec_geo` of `r r$unspec_n`
+:::
+::: {.big-label}
+deaths with no recorded vehicle are geocoded
+:::
+
+::: {.big-number}
+`r r$moto_geo`%
+:::
+::: {.big-label}
+of geocoded deaths are motorcyclists
+:::
+:::
+
+::: {.column width="67%"}
+-   Deaths with no recorded vehicle also lack the sub-district and home province, and `r r$unspec_v892`% carry the ICD-10 code V89.2. They most likely come from a record source without crash details.
+-   The file needed four silent fixes, swapped latitude and longitude, Buddhist Era dates that fail on 29 February, deaths merged into crash events and OSM roads split at junctions.
+
+::: {.caveat}
+The maps describe fatal motorcycle crashes with a recorded location on major roads, which is `r r$flow[["on_network"]]` of the `r r$flow[["events"]]` geocoded crash events.
+:::
+:::
+::::
+
+## Analytical approach
+
+| Question | Method | Key settings | Compared with |
+|---|---|---|---|
+| Where do crashes concentrate | Network kernel density (NKDE) | Quartic kernel, simple method, 1 km bandwidth, 200 m lixels, 500 m and 2 km for sensitivity | Other bandwidths |
+| How intensity varies by road | Crashes per 100 km of road | Road class and province, divided roads counted once and twice | Network length |
+| Do crashes cluster | Network K- and G-functions | 0 to 3 km, 100 m rings, 49 simulations | Random placement along the network |
+| Do nearby crashes bunch in time | Knox test on network distance | 0.5 to 2 km, 7 to 30 days, 999 permutations | Dates shuffled among events |
+
+## Half of the intensity sits on `r round(100 * r$len_half, 1)`% of the road length
+
+:::: {.columns}
+::: {.column width="62%"}
+```{r}
+#| fig-width: 7
+#| fig-height: 5.4
+nkde_breaks <- c(0, 0.05, 0.1, 0.25, 0.5, 1, ceiling(max(r$lixels$intensity) * 10) / 10)
+tm_shape(bmr) +
+  tm_polygons(fill = "grey97", col = "grey60") +
+  tm_text("province", size = 0.6, col = "grey40") +
+  tm_shape(arrange(r$lixels, intensity)) +
+  tm_lines(col = "intensity",
+           col.scale = tm_scale_intervals(values = "brewer.yl_or_rd",
+                                          style = "fixed", breaks = nkde_breaks),
+           col.legend = tm_legend(title = "Events per km"),
+           lwd = 1.3) +
+  tm_layout(frame = FALSE)
+```
+:::
+
+::: {.column width="38%"}
+-   The densest cluster is in central Bangkok, with shorter hotspots along corridors in Pathum Thani and Samut Prakan.
+-   `r r$top5_bkk`% of the top 5% of road segments are in Bangkok, and `r r$top5_primsec`% are primary or secondary roads.
+-   The hotspots stay in place at 500 m (overlap `r r$nkde_sens$top5_overlap_pct[1]`%) and spread out at 2 km.
+
+::: {.caveat}
+The simple method loses about `r r$loss_pct`% of the kernel mass, more near the boundary, so values are relative.
+:::
+:::
+::::
+
+## Per km of road, primary roads and Samut Prakan stand out
+
+:::: {.columns}
+::: {.column width="62%"}
+```{r}
+#| fig-width: 7.5
+#| fig-height: 4.8
+r$rate_tbl %>%
+  select(level, group, `Mapped line` = events_per_100km,
+         `Divided roads counted once` = per_100km_centre) %>%
+  pivot_longer(c(`Mapped line`, `Divided roads counted once`),
+               names_to = "measure", values_to = "rate") %>%
+  mutate(group = fct_reorder(group, rate)) %>%
+  ggplot(aes(rate, group, fill = measure)) +
+  geom_col(position = "dodge", width = 0.7) +
+  facet_wrap(~ level, scales = "free_y", ncol = 1) +
+  scale_fill_manual(values = c(terra_c, "#C9C3B6")) +
+  labs(x = "Fatal crash events per 100 km of road", y = NULL, fill = NULL) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "top")
+```
+:::
+
+::: {.column width="38%"}
+-   Primary and secondary roads have the highest rates under both ways of counting divided roads.
+-   Bangkok has the most crashes, but Samut Prakan has more per km of major road.
+-   Samut Prakan is geocoded less often than Bangkok, so geocoding bias does not explain its higher rate.
+
+::: {.caveat}
+Rates are per km of road. Without traffic volumes they do not measure risk per trip.
+:::
+:::
+::::
+
+## Weekends and the start of the year are worse
+
+:::: {.columns}
+::: {.column width="50%"}
+```{r}
+#| fig-width: 6
+#| fig-height: 4.2
+ggplot(r$monthly, aes(month, share, colour = series, group = series)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 100 / 9, linetype = "dashed", colour = "grey50") +
+  scale_colour_manual(values = c(sage, terra_c)) +
+  labs(x = NULL, y = "Share of Jan to Sep total (%)", colour = NULL) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "top", legend.direction = "vertical")
+```
+:::
+
+::: {.column width="50%"}
+```{r}
+#| fig-width: 6
+#| fig-height: 4.2
+ggplot(r$dow, aes(dow_lab, per_day, fill = weekend)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = sum(r$dow$n) / sum(r$dow$days),
+             linetype = "dashed", colour = "grey40") +
+  scale_fill_manual(values = c(`FALSE` = "#C9C3B6", `TRUE` = terra_c), guide = "none") +
+  labs(x = NULL, y = "Fatal crash events per day") +
+  theme_minimal(base_size = 14)
+```
+:::
+::::
+
+::: {.takeaway}
+The weekend daily rate is `r sprintf("%.2f", r$weekend_ratio)` times the weekday rate (chi-square p = `r signif(r$dow_p, 2)`). Crashes peak in `r { g <- filter(r$monthly, str_detect(series, "Geocoded")); as.character(g$month[which.max(g$n)]) }` and drift down through the year, with the same shape in the geocoded subset and in all deaths.
+:::
+
+## Crashes cluster within about 400 m along the road
+
+```{r}
+#| fig-width: 12
+#| fig-height: 3.8
+r$k_vals %>%
+  select(distances, obs_k, lower_k, upper_k, obs_g, lower_g, upper_g) %>%
+  pivot_longer(-distances, names_to = c(".value", "fun"),
+               names_pattern = "(obs|lower|upper)_(k|g)") %>%
+  mutate(fun = if_else(fun == "k", "Network K-function", "Network G-function (100 m rings)")) %>%
+  ggplot(aes(distances)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = sage, alpha = 0.35) +
+  geom_line(aes(y = obs), colour = terra_c, linewidth = 0.9) +
+  facet_wrap(~ fun, scales = "free_y") +
+  labs(x = "Network distance (m)", y = NULL) +
+  theme_minimal(base_size = 14)
+```
+
+-   The K-function is above the random-placement envelope at `r r$k_above` of `r r$k_n` distances, and the G-function is above it in `r r$g_short_above` of the `r r$g_short_rings` rings up to 400 m.
+
+::: {.caveat}
+Random placement treats every km of road as equal, so part of this excess reflects uneven intensity along roads.
+:::
+
+## Nearby crashes do not bunch in time
+
+:::: {.columns}
+::: {.column width="55%"}
+```{r}
+#| fig-width: 6.2
+#| fig-height: 4.2
+ggplot(r$knox_res, aes(factor(time_days), factor(space_km), fill = ratio)) +
+  geom_tile(colour = "white", linewidth = 1) +
+  geom_text(aes(label = sprintf("%.2f\np = %.2f", ratio, p_value)), size = 4.5) +
+  scale_fill_gradient2(low = sage, mid = "#F4F1EA", high = terra_c, midpoint = 1) +
+  labs(x = "Time threshold (days)", y = "Network distance threshold (km)",
+       fill = "Observed /\nexpected") +
+  theme_minimal(base_size = 14)
+```
+:::
+
+::: {.column width="45%"}
+-   The Knox test shuffles dates among crash events and counts pairs close in both network distance and time.
+-   Every cell has fewer close pairs than expected (ratios `r sprintf("%.2f", min(r$knox_res$ratio))` to `r sprintf("%.2f", max(r$knox_res$ratio))`), and the smallest one-sided p-value is `r min(r$knox_res$p_value)`.
+
+::: {.takeaway}
+Crashes near each other on the road are spread over the months, which fits persistent crash sites and argues against short bursts.
+:::
+:::
+::::
+
+## Implications and limits
+
+:::: {.columns}
+::: {.column width="50%"}
+**What the evidence supports**
+
+-   Target road audits, enforcement and ambulance coverage at a short list of stretches, since half of the intensity sits on `r round(100 * r$len_half, 1)`% of the road length.
+-   Allocate by crashes per km of road as well as by counts, which shifts attention to Samut Prakan and arterial roads.
+-   Favour engineering at persistent sites over patrols after each crash.
+-   Strengthen weekend enforcement, and focus on motorcyclists.
+:::
+
+::: {.column width="50%"}
+**Where the evidence stops**
+
+-   Only `r r$geo_pct`% of BMR deaths have a location, and a quarter of geocoded crashes lie away from major roads.
+-   Without traffic volumes, rates per km do not measure risk.
+-   Random placement on the network ignores uneven intensity, so clustering mixes both effects.
+-   Death dates stand in for crash dates.
+-   Linking death records to police records would close the largest data gap.
+:::
+::::

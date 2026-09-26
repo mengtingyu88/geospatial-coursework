@@ -80,9 +80,9 @@ The larger pieces of work, where I take a real dataset and carry an analysis fro
 
 ::: {.grid}
 
-::: {.g-col-12 .g-col-md-4 .pending}
+::: {.g-col-12 .g-col-md-4}
 ### [Take-home Ex01](Take-home_Ex/Take-home_Ex01/Take-home_Ex01.qmd)
-Coming soon.
+Fatal road crashes in the Bangkok Metropolitan Region in 2024, analysed along the OpenStreetMap road network. Network kernel density, network K and G functions, and a Knox test on network distance to tell persistent crash sites from short bursts. The [executive summary](Take-home_Ex/Take-home_Ex01/Take-home_Ex01_slides.qmd) gives the main findings in ten slides.
 :::
 
 :::

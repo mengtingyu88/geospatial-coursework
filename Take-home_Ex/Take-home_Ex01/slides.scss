@@ -1,0 +1,15 @@
+/*-- scss:defaults --*/
+$body-color: #2B2B2B;
+$presentation-heading-color: #8C3F2E;
+$link-color: #B5533C;
+$presentation-font-size-root: 28px;
+$presentation-heading-font-weight: 600;
+
+/*-- scss:rules --*/
+.reveal .slide-title-note { color: #7A8B6F; font-size: 0.7em; }
+.reveal .big-number { font-size: 2.1em; font-weight: 700; color: #B5533C; line-height: 1.05; }
+.reveal .big-label { font-size: 0.7em; color: #555555; margin-bottom: 0.6em; }
+.reveal .takeaway { border-left: 6px solid #B5533C; background: #F7F1EC; padding: 0.35em 0.8em; margin-top: 0.4em; }
+.reveal .caveat { border-left: 6px solid #7A8B6F; background: #F1F3EE; padding: 0.35em 0.8em; margin-top: 0.4em; font-size: 0.8em; }
+.reveal table { font-size: 0.62em; }
+.reveal .small { font-size: 0.75em; }

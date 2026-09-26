@@ -22,18 +22,20 @@ website:
             text: "Hands-on Ex03: Spatio-Temporal Point Patterns Analysis"
           - href: Hands-on_Ex/Hands-on_Ex04/Hands-on_Ex04.qmd
             text: "Hands-on Ex04: Spatial Weights and Applications"
+          - href: Hands-on_Ex/Hands-on_Ex05/Hands-on_Ex05.qmd
+            text: "Hands-on Ex05: Global and Local Spatial Autocorrelation"
       - text: "In-class Exercises"
         menu:
           - href: In-class_Ex/In-class_Ex01/In-class_Ex01.qmd
             text: "In-class Ex01"
           - href: Hands-on_Ex/Hands-on_Ex04/In-class_Ex04.qmd
             text: "In-class Ex04: Geographically Weighted Summary Statistics"
-          - href: Hands-on_Ex/Hands-on_Ex05/Hands-on_Ex05.qmd
-            text: "Hands-on Ex05: Global and Local Spatial Autocorrelation"
       - text: "Take-home Exercises"
         menu:
           - href: Take-home_Ex/Take-home_Ex01/Take-home_Ex01.qmd
-            text: "Take-home Ex01"
+            text: "Take-home Ex01: Technical Report"
+          - href: Take-home_Ex/Take-home_Ex01/Take-home_Ex01_slides.qmd
+            text: "Take-home Ex01: Executive Summary"
     right:
       - href: about.qmd
         text: About
