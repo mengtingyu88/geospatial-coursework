@@ -45,6 +45,11 @@ Forest fires in Bangka Belitung across 2023. Spatio-temporal KDE with sparr, the
 ### [Hands-on Ex04](Hands-on_Ex/Hands-on_Ex04/Hands-on_Ex04.qmd)
 Contiguity, distance and k nearest neighbour weights for Hunan's counties, and four ways to compute a spatial lag of GDP per capita.
 :::
+
+::: {.g-col-12 .g-col-md-4}
+### [Hands-on Ex05](Hands-on_Ex/Hands-on_Ex05/Hands-on_Ex05.qmd)
+Moran's I, Geary's C and correlograms for Hunan's GDP per capita, then LISA clusters and Gi* hot and cold spots.
+:::
 :::
 
 ## In-class Exercises
