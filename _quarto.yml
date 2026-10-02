@@ -24,6 +24,8 @@ website:
             text: "Hands-on Ex04: Spatial Weights and Applications"
           - href: Hands-on_Ex/Hands-on_Ex05/Hands-on_Ex05.qmd
             text: "Hands-on Ex05: Global and Local Spatial Autocorrelation"
+          - href: Hands-on_Ex/Hands-on_Ex06/Hands-on_Ex06.qmd
+            text: "Hands-on Ex06: Spatially Constrained Clustering"
       - text: "In-class Exercises"
         menu:
           - href: In-class_Ex/In-class_Ex01/In-class_Ex01.qmd
