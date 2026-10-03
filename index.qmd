@@ -50,10 +50,12 @@ Contiguity, distance and k nearest neighbour weights for Hunan's counties, and f
 ### [Hands-on Ex05](Hands-on_Ex/Hands-on_Ex05/Hands-on_Ex05.qmd)
 Moran's I, Geary's C and correlograms for Hunan's GDP per capita, then LISA clusters and Gi* hot and cold spots.
 :::
+
 ::: {.g-col-12 .g-col-md-4}
 ### [Hands-on Ex06](Hands-on_Ex/Hands-on_Ex06/Hands-on_Ex06.qmd)
 ICT regions for Shan State's 55 townships. Ward clustering first, then SKATER and ClustGeo to see how much homogeneity it costs to keep each region in one piece.
 :::
+
 :::
 
 ## In-class Exercises
@@ -72,6 +74,11 @@ Coming soon.
 ::: {.g-col-12 .g-col-md-4}
 ### [In-class Ex04](Hands-on_Ex/Hands-on_Ex04/In-class_Ex04.qmd)
 Geographically weighted summary statistics for GDP per capita in Hunan. Choosing an adaptive bandwidth by cross-validation and AICc, then mapping local means to see where the county-level picture differs from the provincial average.
+:::
+
+::: {.g-col-12 .g-col-md-4}
+### [In-class Ex06](In-class_Ex/In-class_Ex06/In-class_Ex06.qmd)
+Emerging hot spot analysis of GDP per capita in Hunan. A spacetime cube of county values by year, Gi* computed for each year, and the Mann-Kendall test to separate clusters that are intensifying from those that are fading.
 :::
 
 :::
