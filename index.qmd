@@ -56,6 +56,10 @@ Moran's I, Geary's C and correlograms for Hunan's GDP per capita, then LISA clus
 ICT regions for Shan State's 55 townships. Ward clustering first, then SKATER and ClustGeo to see how much homogeneity it costs to keep each region in one piece.
 :::
 
+::: {.g-col-12 .g-col-md-4}
+### [Hands-on Ex07](Hands-on_Ex/Hands-on_Ex07/Hands-on_Ex07.qmd)
+Accessibility to eldercare centres across 3,125 hexagons in Singapore. Hansen, KD2SFCA and SAM computed from a road distance matrix, then compared by planning region after fixing duplicated hexagons in the spatial join.
+:::
 :::
 
 ## In-class Exercises
