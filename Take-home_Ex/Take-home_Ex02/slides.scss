@@ -1,0 +1,148 @@
+/*-- scss:defaults --*/
+@import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap');
+
+$body-bg: #FBF8F4;
+$body-color: #2E2A26;
+$link-color: #B5543C;
+$font-family-sans-serif: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+$presentation-heading-font: "Lora", Georgia, serif;
+$presentation-heading-color: #7F3423;
+$presentation-heading-font-weight: 600;
+$presentation-font-size-root: 26px;
+$presentation-h2-font-size: 1.45em;
+$presentation-h3-font-size: 1.05em;
+
+/*-- scss:rules --*/
+.reveal .slides section h2 {
+  border-bottom: 3px solid #B5543C;
+  padding-bottom: 0.25em;
+  margin-bottom: 0.6em;
+}
+
+.reveal .slide-subtitle { color: #4F7559; }
+
+.reveal ul { margin-left: 0.8em; }
+.reveal li { margin-bottom: 0.35em; line-height: 1.3; }
+
+.reveal .box {
+  background: #F3E7DE;
+  border-left: 6px solid #B5543C;
+  padding: 0.55em 0.9em;
+  border-radius: 4px;
+  margin-bottom: 0.6em;
+}
+
+.reveal .box-sage {
+  background: #E6EFE6;
+  border-left: 6px solid #4F7559;
+  padding: 0.55em 0.9em;
+  border-radius: 4px;
+  margin-bottom: 0.6em;
+}
+
+.reveal .kpi {
+  font-family: "Lora", Georgia, serif;
+  font-size: 1.7em;
+  font-weight: 700;
+  color: #B5543C;
+  line-height: 1.05;
+}
+
+.reveal .kpi-label {
+  font-size: 0.8em;
+  color: #6B645C;
+  margin-bottom: 0.7em;
+}
+
+.reveal .note {
+  font-size: 0.55em;
+  color: #6B645C;
+}
+
+.reveal .flow {
+  display: flex;
+  gap: 0.5em;
+  align-items: stretch;
+  margin-top: 0.4em;
+}
+
+.reveal .step {
+  flex: 1;
+  background: #FFFFFF;
+  border: 1px solid #E2D6CC;
+  border-top: 6px solid #B5543C;
+  border-radius: 6px;
+  padding: 0.5em 0.6em;
+  font-size: 0.6em;
+  line-height: 1.3;
+}
+
+.reveal .step h4 {
+  font-family: "Lora", Georgia, serif;
+  color: #7F3423;
+  font-size: 1.25em;
+  margin: 0 0 0.4em 0;
+  text-transform: none;
+}
+
+.reveal .step.sage { border-top-color: #4F7559; }
+.reveal .step.sage h4 { color: #3F6650; }
+
+.reveal .arrow {
+  align-self: center;
+  color: #B5543C;
+  font-size: 1.2em;
+  font-weight: 700;
+}
+
+.reveal .cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6em;
+}
+
+.reveal .card {
+  background: #FFFFFF;
+  border: 1px solid #E2D6CC;
+  border-left: 6px solid #B5543C;
+  border-radius: 6px;
+  padding: 0.5em 0.8em;
+  font-size: 0.68em;
+  line-height: 1.35;
+}
+
+.reveal .card.sage { border-left-color: #4F7559; }
+
+.reveal .card strong {
+  display: block;
+  font-family: "Lora", Georgia, serif;
+  color: #7F3423;
+  font-size: 1.15em;
+  margin-bottom: 0.25em;
+}
+
+.reveal .card.sage strong { color: #3F6650; }
+
+.reveal table { font-size: 0.72em; }
+.reveal table th { color: #7F3423; }
+
+.reveal .smaller-list li { font-size: 0.78em; }
+
+.reveal .title-slide h1.title {
+  font-size: 1.9em;
+  color: #7F3423;
+}
+
+.reveal .step-title {
+  display: block;
+  font-family: "Lora", Georgia, serif;
+  color: #7F3423;
+  font-size: 1.3em;
+  font-weight: 600;
+  margin-bottom: 0.3em;
+}
+.reveal .step.sage .step-title { color: #3F6650; }
+.reveal .col-text { font-size: 0.82em; }
+.reveal .col-text li { margin-bottom: 0.45em; }
+.reveal .card { font-size: 0.88em; }
+.reveal .step { font-size: 0.7em; }

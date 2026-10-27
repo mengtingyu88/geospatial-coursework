@@ -1,0 +1,432 @@
+---
+title: "Where Myanmar's War Clusters and Moves"
+subtitle: "Executive summary of Take-home Exercise 2, armed conflict by township, January 2021 to September 2025"
+author: "Meng Tingyu"
+date: "October 27, 2026"
+format:
+  revealjs:
+    theme: [default, slides.scss]
+    width: 1280
+    height: 720
+    margin: 0.06
+    slide-number: true
+    show-slide-number: all
+    transition: fade
+    hash-type: number
+    footer: "ISSS624 Geospatial Analytics · Take-home Exercise 2"
+execute:
+  echo: false
+  warning: false
+  message: false
+  freeze: true
+---
+
+```{r}
+#| label: setup
+knitr::opts_chunk$set(dev = "png", dpi = 150, dev.args = list(bg = "#FBF8F4"))
+pacman::p_load(sf, tidyverse, classInt, patchwork)
+bg_fill <- plot_annotation(theme = theme(plot.background = element_rect(fill = "#FBF8F4", colour = NA)))
+
+mmr_conflict <- read_rds("data/rds/mmr_conflict.rds")
+geo          <- select(mmr_conflict, TS_PCODE)
+add_geo      <- function(df) left_join(geo, df, by = "TS_PCODE")
+lisa_sf      <- add_geo(read_rds("data/rds/lisa_res.rds"))
+gstar_sf     <- add_geo(read_rds("data/rds/gstar_res.rds"))
+ehsa_sf      <- add_geo(read_rds("data/rds/ehsa_res.rds"))
+bv_sf        <- add_geo(read_rds("data/rds/bv_res.rds"))
+
+pal_seq  <- c("#F7F1EC", "#EFD4C4", "#E2AC90", "#CF7F5F", "#B5543C", "#7F3423")
+pal_lisa <- c("High-High" = "#B5452F", "High-Low" = "#E3A03A",
+              "Low-High"  = "#A6C2A8", "Low-Low"  = "#4F7559")
+pal_gi   <- c("Hot spot (p < 0.01)"  = "#9C3A24", "Hot spot (p < 0.05)"  = "#E2AC90",
+              "Cold spot (p < 0.05)" = "#A6C2A8", "Cold spot (p < 0.01)" = "#4F7559")
+pal_ehsa <- c("new hotspot" = "#E3A03A", "consecutive hotspot" = "#B5452F",
+              "oscillating hotspot" = "#DE8B6C", "sporadic hotspot" = "#F0C4AE",
+              "no pattern detected" = "#D8D2C8", "diminishing coldspot" = "#C3D7C0",
+              "sporadic coldspot" = "#B5CDB4", "oscillating coldspot" = "#86A88A",
+              "consecutive coldspot" = "#3F6650")
+col_ns   <- "#EDEBE7"
+col_line <- "#9A948C"
+var_labels <- c(battles = "Battles", explosions = "Explosions",
+                vac = "Attacks on civilians")
+
+theme_map <- function(base = 13) {
+  theme_void(base_size = base) +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5, colour = "#2E2A26"),
+          plot.background = element_rect(fill = "#FBF8F4", colour = NA),
+          legend.title = element_text(size = base - 2),
+          legend.text = element_text(size = base - 3),
+          legend.key.size = unit(0.45, "cm"))
+}
+
+sig_map <- function(all_sf, sig_sf, fill_col, pal, title, legend_title, drop = TRUE) {
+  ggplot() +
+    geom_sf(data = all_sf, fill = col_ns, colour = col_line, linewidth = 0.05) +
+    geom_sf(data = sig_sf, aes(fill = .data[[fill_col]]),
+            colour = col_line, linewidth = 0.05) +
+    scale_fill_manual(values = pal, drop = drop, name = legend_title) +
+    coord_sf(datum = NA) +
+    labs(title = title) +
+    theme_map()
+}
+```
+
+## Contents
+
+1. Research question
+2. Study area and data
+3. Analytical approach
+4. Where conflict happened
+5. Hot spots, cold spots and outliers
+6. How the clusters are moving
+7. Violence away from the front line
+8. Limitations
+9. Public-safety implications
+
+## Research question
+
+:::: {.columns}
+
+::: {.column width="55%"}
+Myanmar's military seized power in February 2021. Peaceful protest turned into armed resistance, and the country has since split into areas held by the military, ethnic armed organisations and People's Defence Forces.
+
+ACLED recorded **53,907** battles, explosions and attacks on civilians that can be placed in a township between January 2021 and September 2025.
+
+::: {.box}
+**Where does armed conflict cluster across Myanmar's 330 townships, how have those clusters shifted over 19 quarters, and where does violence happen away from the front line?**
+:::
+:::
+
+::: {.column width="45%"}
+**Objectives**
+
+- Locate significant hot spots, cold spots and spatial outliers for three types of political violence
+- Measure where clusters are growing, fading or flipping between quarters
+- Find townships where civilians face violence with little fighting nearby
+- Give peace-building and protection planners a township-level picture
+:::
+
+::::
+
+## Study area and data
+
+:::: {.columns}
+
+::: {.column width="38%"}
+```{r}
+#| label: study-area
+#| fig-width: 4.6
+#| fig-height: 6.6
+states <- mmr_conflict |>
+  group_by(ST) |>
+  summarise(.groups = "drop")
+
+ggplot() +
+  geom_sf(data = mmr_conflict, fill = "#F3E7DE", colour = "white", linewidth = 0.1) +
+  geom_sf(data = states, fill = NA, colour = "#7F3423", linewidth = 0.35) +
+  coord_sf(datum = NA) +
+  labs(title = "330 townships in 18 states and regions") +
+  theme_map(13)
+```
+:::
+
+::: {.column width="62%"}
+| Item | Detail |
+|------------|--------------------------------------------------|
+| Events | ACLED Myanmar, 87,109 records, 53,907 kept |
+| Boundaries | MIMU township boundaries v9.4, 330 townships |
+| Variables | Battles (21,069), Explosions/Remote violence (22,899), Violence against civilians (9,939) |
+| Unit | Township by quarter, 19 quarters, 6,270 cells |
+| CRS | WGS 84 / UTM zone 47N (EPSG 32647) |
+
+::: {.box-sage}
+**Cleaning decisions**
+
+- Dropped 6 events at sea and 33,103 protests, riots and strategic developments
+- Dropped 93 events located only to district or state
+- Joined points to townships by location and P-code, since two township names repeat
+- Kept townships with no events as zeros
+:::
+:::
+
+::::
+
+## Analytical approach
+
+::: {.flow}
+::: {.step}
+[1. Prepare]{.step-title}
+
+Spatial join of events to townships, counts by type, and a space-time cube of 330 townships by 19 quarters
+:::
+::: {.arrow}
+›
+:::
+::: {.step}
+[2. LMSA]{.step-title}
+
+Global Moran's I, Local Moran's I and Getis-Ord Gi* on totals for 2021 to 2025, with 999 permutations
+:::
+::: {.arrow}
+›
+:::
+::: {.step}
+[3. EHSA]{.step-title}
+
+Spatio-temporal Gi* for every quarter, then a Mann-Kendall test to classify each township's trend
+:::
+::: {.arrow}
+›
+:::
+::: {.step .sage}
+[4. Value added]{.step-title}
+
+Bivariate Local Moran's I comparing violence in a township with battles in its neighbourhood
+:::
+:::
+
+<br>
+
+:::: {.columns}
+
+::: {.column width="50%"}
+**Key parameters**
+
+- Queen contiguity, with the three island townships linked to their nearest neighbour
+- Row-standardised weights, self included for Gi*
+- Significance at p < 0.05, so all maps show significant townships only
+:::
+
+::: {.column width="50%"}
+**Checks that changed results**
+
+- Quarters chosen over months, which cuts empty township cells from about 70% to about 52%
+- EHSA threshold set to 0.05 instead of the 0.01 default
+- Eight townships that sfdep labelled intensifying hot spots were cold in nearly every quarter and were reclassified as diminishing cold spots
+:::
+
+::::
+
+## Where conflict happened
+
+:::: {.columns}
+
+::: {.column width="66%"}
+```{r}
+#| label: totals
+#| fig-width: 9.5
+#| fig-height: 7.2
+count_map <- function(v) {
+  brks <- classIntervals(mmr_conflict[[v]], n = 6, style = "fisher")$brks
+  mmr_conflict |>
+    mutate(cls = cut(.data[[v]], breaks = unique(brks), include.lowest = TRUE,
+                     dig.lab = 4)) |>
+    ggplot() +
+    geom_sf(aes(fill = cls), colour = "white", linewidth = 0.05) +
+    scale_fill_manual(values = pal_seq, name = "Events") +
+    coord_sf(datum = NA) +
+    labs(title = var_labels[[v]]) +
+    theme_map(14) +
+    theme(legend.position = "bottom", legend.direction = "vertical")
+}
+
+(count_map("battles") | count_map("explosions") | count_map("vac")) + bg_fill
+```
+:::
+
+::: {.column width="34%" .col-text}
+::: {.kpi}
+4,871 and 5,349
+:::
+::: {.kpi-label}
+battles and explosion events in Sagaing, the most of any region
+:::
+
+::: {.kpi}
+2023 Q4
+:::
+::: {.kpi-label}
+national peak, with 1,649 battles and 1,923 explosion events as Operation 1027 began
+:::
+
+- Explosions have outnumbered battles in every quarter since 2023 Q4
+- Attacks on civilians peaked in 2021 Q4 and have fallen since
+- The delta, eastern Shan and Nay Pyi Taw stay pale on all three maps
+:::
+
+::::
+
+## Hot spots, cold spots and outliers
+
+:::: {.columns}
+
+::: {.column width="64%"}
+```{r}
+#| label: gistar
+#| fig-width: 9.5
+#| fig-height: 7.2
+gi_map <- function(v) {
+  d <- filter(gstar_sf, variable == v)
+  sig <- d |>
+    filter(class != "Not significant") |>
+    mutate(class = factor(class, levels = names(pal_gi)))
+  sig_map(d, sig, "class", pal_gi, var_labels[[v]], "Gi*", drop = FALSE) +
+    theme(plot.title = element_text(size = 14))
+}
+
+(gi_map("battles") | gi_map("explosions") | gi_map("vac")) + bg_fill +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom", legend.text = element_text(size = 12),
+        legend.title = element_text(size = 13))
+```
+:::
+
+::: {.column width="36%" .col-text}
+- Conflict is strongly clustered, with Moran's I of 0.45 to 0.48 for all three types
+- **Sagaing, Magway and Mandalay** form the hot core for every type, mostly at p < 0.01
+- Battles also run hot in Kayin, Kayah, Chin and Tanintharyi, while attacks on civilians stay in the Dry Zone
+- Cold spots cover Yangon, the delta and eastern Shan
+- LISA finds few outliers. Hpa-An and Hlaingbwe in Kayin are quiet townships ringed by heavy fighting
+:::
+
+::::
+
+## How the clusters are moving
+
+:::: {.columns}
+
+::: {.column width="62%"}
+```{r}
+#| label: ehsa
+#| fig-width: 9.5
+#| fig-height: 7.2
+ehsa_map <- function(v) {
+  d <- filter(ehsa_sf, variable == v)
+  sig <- d |> filter(p_value < 0.05)
+  sig <- mutate(sig, classification = factor(classification, levels = lv_ehsa))
+  sig_map(d, sig, "classification", pal_ehsa[lv_ehsa], var_labels[[v]],
+          "EHSA class (p < 0.05)", drop = FALSE) +
+    theme(plot.title = element_text(size = 14))
+}
+
+lv_ehsa <- ehsa_sf |>
+  st_drop_geometry() |>
+  filter(variable %in% c("battles", "explosions"), p_value < 0.05) |>
+  pull(classification) |>
+  unique() |>
+  intersect(x = names(pal_ehsa))
+
+(ehsa_map("battles") | ehsa_map("explosions")) + bg_fill +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right", legend.text = element_text(size = 12),
+        legend.title = element_text(size = 13))
+```
+:::
+
+::: {.column width="38%" .col-text}
+- Most Sagaing townships show **no significant trend**. They have been hot for so long that the trend is flat
+- **Oscillating hot spots** ring Mandalay city and the Rakhine and Tanintharyi coasts, places that were once cold
+- **Consecutive hot spots** line the Mandalay to Lashio road at Mogoke, Kyaukme and Nawnghkio
+- **New hot spots** for explosions appeared in Hpakant and Mogaung in 2025 Q3
+- Border townships of northern Shan turned into **oscillating cold spots** after the 2024 ceasefire
+:::
+
+::::
+
+## Violence away from the front line
+
+:::: {.columns}
+
+::: {.column width="60%"}
+```{r}
+#| label: bivariate
+#| fig-width: 9.5
+#| fig-height: 7.2
+bv_labels <- c(air = "Military air and drone strikes",
+               ied = "IEDs and landmines, Yangon")
+
+bv_map <- function(v) {
+  d <- filter(bv_sf, variable == v)
+  sig <- d |>
+    filter(p_sim < 0.05) |>
+    mutate(quadrant = factor(quadrant, levels = names(pal_lisa)))
+  sig_map(d, sig, "quadrant", pal_lisa, bv_labels[[v]],
+          "Violence vs neighbouring battles", drop = FALSE) +
+    theme(plot.title = element_text(size = 14))
+}
+
+ygn_box <- st_bbox(filter(mmr_conflict, ST == "Yangon", TS != "Cocokyun"))
+
+(bv_map("air") |
+   bv_map("ied") + coord_sf(xlim = ygn_box[c("xmin", "xmax")],
+                            ylim = ygn_box[c("ymin", "ymax")], datum = NA)) +
+  bg_fill +
+  plot_layout(guides = "collect", widths = c(1, 1.2)) &
+  theme(legend.position = "bottom", legend.text = element_text(size = 12),
+        legend.title = element_text(size = 13))
+```
+:::
+
+::: {.column width="40%" .col-text}
+Bivariate LISA compares violence in each township with battles in the townships around it.
+
+- **Air strikes follow the fighting.** No township forms a significant High-Low result for military air and drone strikes
+- **Bombs and attacks on civilians do not.** IEDs have 20 High-Low townships and 18 are in Yangon. Attacks on civilians have 11, of which 9 are in Yangon
+- These townships look cold on the single-variable maps. Hlaingtharya (East) had 103 IED events and its neighbours averaged 5 battles
+:::
+
+::::
+
+## Limitations
+
+::: {.cards}
+::: {.card .sage}
+**Reporting gaps**
+ACLED depends on media and partner reports. Remote areas under internet shutdown may look colder than they are.
+:::
+::: {.card .sage}
+**Location precision**
+About 45% of events are placed at a town point, which inflates townships that contain district towns, such as Hpapun and Monywa.
+:::
+::: {.card .sage}
+**Unit size**
+Yangon's 45 small townships and large rural townships count as equal units. Counts are not adjusted for area or population.
+:::
+::: {.card .sage}
+**Multiple testing**
+330 tests per map at p < 0.05. After FDR correction the cluster cores remain, but edge townships may be false positives.
+:::
+::: {.card .sage}
+**Trend test**
+A single Mann-Kendall test over 19 quarters gives a weak trend for a township whose violence rose and then fell.
+:::
+::: {.card .sage}
+**Co-location only**
+The bivariate result shows where violence types meet. It cannot show that one caused the other.
+:::
+:::
+
+## Public-safety implications
+
+::: {.cards}
+::: {.card}
+**Plan long term in the Dry Zone**
+Sagaing, Magway and Mandalay carry the heaviest load of all three types and have been hot for close to five years. Access and protection need multi-year planning there.
+:::
+::: {.card}
+**Early warning where violence is arriving**
+Hpakant and Mogaung, the ring around Mandalay, the Mandalay to Lashio road and the Rakhine and Tanintharyi coasts need contingency stocks and evacuation plans.
+:::
+::: {.card .sage}
+**Watch ceasefire areas closely**
+Border townships of northern Shan cooled quickly after the ceasefire, but they swung between hot and cold before, so the gain is fragile.
+:::
+::: {.card .sage}
+**Protect civilians in cold cities**
+Yangon faces bombings, killings and arrests without a front line. Legal aid, documentation and safe reporting matter more there than front-line relief.
+:::
+:::
+
+::: {.note}
+Full methods, code and diagnostics are in the Technical Report.
+:::
