@@ -84,6 +84,10 @@ Emerging hot spot analysis of GDP per capita in Hunan. A spacetime cube of count
 ::: {.g-col-12 .g-col-md-4}
 ### [In-class Ex07](In-class_Ex/In-class_Ex07/In-class_Ex07.qmd)
 :::
+::: {.g-col-12 .g-col-md-4}
+### [In-class Ex08](In-class_Ex/In-class_Ex08/In-class_Ex08.qmd)
+Market area analysis with the Huff model. Village population and the distance from each village to each store give patronage probabilities, which I use to map the trade area of one store, estimate store sales against actual sales, and assign every village to its most likely store.
+:::
 
 :::
 
