@@ -1,0 +1,783 @@
+---
+title: "Hands-on Ex08: Market Area Analysis with the Huff Model"
+subtitle: "Delineating the trade areas of 28 fast-food stores in Taichung City"
+author: "Meng Tingyu"
+date: "October 28, 2026"
+date-modified: "last-modified"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
+    fig-align: center
+execute:
+  eval: true
+  echo: true
+  warning: false
+  message: false
+  freeze: true
+---
+
+## What this exercise is about
+
+This exercise estimates where the customers of a fast-food franchise in Taichung City come from. I play the role of an analyst in the business development team, and the job is to map the trade area of each of the 28 existing stores.
+
+The tool is the Huff model. For every village and every store it gives a probability that a resident of the village visits that store. The probability goes up with the attractiveness of the store and goes down with distance and with the number of competing stores nearby. The **MCI** package computes it with `huff.shares()`.
+
+The work has six parts. Part 1 and Part 2 import and clean the data. Part 3 and Part 4 build the distance matrix and the interaction matrix that MCI expects. Part 5 runs the Huff model, maps the trade area of one store and compares the estimated sales with the real sales. Part 6 adds seven checks and alternatives of my own.
+
+## Setting up
+
+### The data
+
+The course page says four datasets are used, but the code reads five, three spatial layers and two tables. All three layers are ESRI shapefiles in TWD97 / TM2 zone 121 (EPSG 3826).
+
+| Dataset | Type | What it holds |
+|---|---|---|
+| `STORES_TC` | point shapefile | 28 store locations with name, address and store code |
+| `TOWN_TC` | polygon shapefile | 28 district boundaries of Taichung City |
+| `VILLAGE_TC` | polygon shapefile | 622 village (里) boundaries |
+| `pop2019.csv` | csv | 2019 village population, `H_CNT` households, `P_CNT` total, `M_CNT` male, `F_CNT` female |
+| `Store_sales_data.csv` | csv | 5,499 rows of bills and sales amount by store code |
+
+The data folder also has two files the course page never uses. `STORES_TC1` is a copy of the store layer with a 29th point called "New Store", and `storeCD.csv` lists a `Capacity` of 50 for every store. I use `STORES_TC1` in Section 6.7 to test what happens when a new store opens.
+
+::: {.callout-note title="Data folder housekeeping"}
+The download came with QGIS metadata files named `STORES_TC1.qmd`, `TOWN_TC.qmd` and `VILLAGE_TC.qmd`. They are XML files that only share the `.qmd` extension with Quarto documents, so `quarto render` tries to render them as pages and fails. I deleted them from `data/geospatial` before rendering the site.
+:::
+
+### Packages
+
+Five packages come from the course page. I added **patchwork** to put maps side by side and **ggrepel** to label stores on scatter plots without overlap.
+
+```{r}
+#| label: setup
+pacman::p_load(sf, tidyverse, MCI, tmap, ggstatsplot,
+               patchwork, ggrepel)
+```
+
+## Part 1 Importing the data
+
+### 1.1 Geospatial data
+
+`st_read()` reads the three shapefiles into sf data frames.
+
+```{r}
+#| label: read-geo
+stores <- st_read(dsn = "data/geospatial",
+                  layer = "STORES_TC")
+
+town <- st_read(dsn = "data/geospatial",
+                layer = "TOWN_TC")
+
+village <- st_read(dsn = "data/geospatial",
+                   layer = "VILLAGE_TC")
+```
+
+The three layers share the same projected CRS, so distances computed later come out in metres without any transformation. I still confirm it in code because a single layer in WGS84 would make every distance wrong.
+
+```{r}
+#| label: crs-check
+sapply(list(stores = stores, town = town, village = village),
+       function(x) st_crs(x)$epsg)
+```
+
+The interactive map below puts the stores on top of the district and village boundaries.
+
+```{r}
+#| label: view-map
+tmap_mode("view")
+tm_shape(town) +
+  tm_polygons() +
+tm_shape(village) +
+  tm_polygons() +
+tm_shape(stores) +
+  tm_dots()
+tmap_mode("plot")
+```
+
+Most stores sit in the dense central districts around the old city, and the rural east and the coast have only a few. Seven districts have no store at all, Zhong, Xinshe, Shigang, Waipu, Dadu, Daan and Qingshui. Zhong District is the old downtown, so a gap there was a surprise to me.
+
+### 1.2 Aspatial data
+
+`read_csv()` imports the two tables.
+
+```{r}
+#| label: read-csv
+pop2019 <- read_csv("data/aspatial/pop2019.csv")
+
+store_sales <- read_csv("data/aspatial/Store_sales_data.csv")
+
+summary(store_sales)
+```
+
+The sales table is much bigger than the Taichung store list. It has 234 distinct store codes, which means it covers the whole franchise in Taiwan, and 29 rows have no store code. Only the 28 Taichung codes survive the join in Part 2, so neither issue affects the results.
+
+## Part 2 Preparing the data
+
+### 2.1 Aggregating store sales
+
+The sales table has one row per store and POD code, so I sum it up to one row per store.
+
+```{r}
+#| label: aggregate-sales
+store_sales_aggre <- store_sales %>%
+  group_by(`Store Code`) %>%
+  summarise(
+    "Total_Bill" = sum(Bills, na.rm = TRUE),
+    "Total_Sales" = sum(Amount, na.rm = TRUE))
+```
+
+### 2.2 Relational join
+
+`left_join()` attaches the totals to the store layer. The same step creates `Store_size`, which the Huff model uses as attractiveness.
+
+```{r}
+#| label: join-sales
+stores <- stores %>%
+  left_join(store_sales_aggre,
+            by = join_by(
+              Store_CD == `Store Code`)) %>%
+  mutate(Store_size = 100)
+
+summary(stores)
+```
+
+All 28 stores found a match and none of the totals is missing. Sales range from 1.48 million at EH to 8.23 million at FH.
+
+::: {.callout-important title="Store_size is the same for every store"}
+Setting `Store_size = 100` for all stores means attractiveness is constant, and a constant cancels out in the Huff formula. The probabilities in this exercise therefore depend on distance alone. Using the `Capacity` of 50 from `storeCD.csv` would give exactly the same result, since that column is also constant. I keep this in mind when I read the sales comparison in Section 5.2.
+:::
+
+### 2.3 Tidying pop2019
+
+The village code in `pop2019` has a hyphen (`66000110-002`) while `VILLCODE` in the village layer does not (`66000110002`). The two `glimpse()` outputs show the difference.
+
+```{r}
+#| label: glimpse
+glimpse(pop2019)
+glimpse(village)
+```
+
+`str_remove_all()` strips the hyphen so the two keys match, and then the population joins onto the village polygons.
+
+```{r}
+#| label: join-pop
+pop2019 <- pop2019 %>%
+  mutate(V_ID = str_remove_all(V_ID, "-"))
+
+village <- village %>%
+  left_join(pop2019,
+            by = join_by(VILLCODE == V_ID))
+```
+
+### 2.4 Checking for missing values
+
+```{r}
+#| label: summary-village
+summary(village)
+```
+
+`H_CNT`, `P_CNT`, `M_CNT` and `F_CNT` each have five missing values. Before dropping them I wanted to see which villages they are.
+
+```{r}
+#| label: who-is-missing
+village %>%
+  filter(is.na(P_CNT)) %>%
+  mutate(area_km2 = round(as.numeric(st_area(geometry)) / 1e6, 2)) %>%
+  st_drop_geometry() %>%
+  select(VILLCODE, TOWNNAME, NOTE, area_km2)
+```
+
+::: {.callout-note title="The five missing villages have no residents"}
+The five polygons have codes ending in `S01` to `S03` and the `NOTE` field says 未編定村里, which means land that was never assigned to a village. Three are in Qingshui, one in Wuqi and one in Longjing, about 23 km² in total along the coast. They are not data errors, so removing them is safe. They show up as small blank holes on the maps below.
+:::
+
+The join also hides a gap in the other direction. `pop2019` has 625 rows and only 617 of them find a polygon.
+
+```{r}
+#| label: unmatched-pop
+pop2019 %>%
+  filter(!V_ID %in% village$VILLCODE) %>%
+  select(TOWN, V_ID, VILLAGE, P_CNT)
+```
+
+The eight unmatched rows all belong to Heping District (和平區), the mountain district in the east with 10,902 residents. The village and town layers cover 28 of Taichung's 29 districts and leave Heping out, so these people drop out of the model quietly. That is 0.4% of the population, small enough to ignore here, but I would flag it to the business team.
+
+```{r}
+#| label: drop-na
+village <- village %>%
+  filter(!is.na(P_CNT))
+
+any(is.na(village$H_CNT))
+any(is.na(village$P_CNT))
+any(is.na(village$M_CNT))
+any(is.na(village$F_CNT))
+```
+
+617 villages and 2,804,359 residents go into the model.
+
+## Part 3 Computing the distance matrix
+
+Each village is reduced to one point, and the distance from that point to every store becomes the distance in the model. The course text says centroid, but the code uses `st_point_on_surface()`, which returns a point that is always inside the polygon.
+
+```{r}
+#| label: distmat
+village_center <- st_point_on_surface(village)
+distmat <- st_distance(village_center, stores)
+```
+
+::: {.callout-tip title="Why point on surface beats the centroid here"}
+I checked how many true centroids fall outside their own village.
+
+```{r}
+#| label: centroid-check
+village_cent <- st_centroid(village)
+outside <- !sapply(seq_len(nrow(village)), function(i)
+  st_within(village_cent[i, ], village[i, ], sparse = FALSE)[1, 1])
+sum(outside)
+```
+
+Eight villages have a centroid outside their own boundary, three of them in Xitun. For these villages the centroid can sit closer to a different store, and when I reran the model with centroids the probability for one store in one village changed by up to 0.40. The store totals moved by at most 5.3%, so the effect is local, but the point on surface version is the safer choice.
+:::
+
+The matrix is 617 by 28. To feed MCI it has to become a long table with one row per village and store pair.
+
+```{r}
+#| label: distmat-long
+rownames(distmat) <- village$VILLCODE
+colnames(distmat) <- stores$Store_CD
+
+distmat_long <- distmat %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "VILLCODE") %>%
+  pivot_longer(
+    cols = -VILLCODE,
+    names_to = "Store_CD",
+    values_to = "distance") %>%
+  mutate(distance = as.numeric(distance))
+```
+
+## Part 4 Preparing the interaction matrix
+
+MCI needs one table with origin, destination, attractiveness and distance. I add `Store_size` from the store layer and move `distance` to the last column.
+
+```{r}
+#| label: interaction-matrix
+interaction_matrix <- distmat_long %>%
+  left_join(
+    stores %>%
+      st_drop_geometry() %>%
+      select(Store_CD, Store_size),
+    by = "Store_CD") %>%
+  relocate(distance, .after = last_col())
+
+summary(interaction_matrix)
+```
+
+The table has 17,276 rows, which is 617 villages times 28 stores. The shortest distance is 108 m and the longest is 41.4 km, with a median of about 12 km.
+
+## Part 5 Computing the Huff model
+
+```{r}
+#| label: huff
+huff_share <- huff.shares(
+  interaction_matrix, "VILLCODE", "Store_CD",
+  "Store_size", "distance")
+```
+
+::: {.callout-note title="What huff.shares() does with its defaults"}
+The call does not set `gamma` or `lambda`, so MCI uses its defaults, `gamma = 1` and `lambda = -2` with power functions for both. Each village and store pair gets a utility of `Store_size^1 × distance^-2`, and `p_ij` is that utility divided by the sum over all 28 stores for the same village. With equal store sizes this reduces to inverse distance squared, and the 28 probabilities of every village add up to 1. Section 6.5 tests other values of `lambda`.
+:::
+
+### 5.1 Trade area of a single store
+
+The course text says it picks store TG, but the code filters `BT`. I follow the code here and map TG separately in Section 6.2.
+
+```{r}
+#| label: select-bt
+market_share <- huff_share %>%
+  filter(Store_CD == "BT")
+
+Trade_area <- village %>%
+  left_join(market_share, by = "VILLCODE")
+
+selected_store <- stores %>%
+  filter(Store_CD == "BT")
+```
+
+::: {.callout-warning title="Fixes to the course map code"}
+I changed three things in the course code. The `left_join()` that builds `Trade_area` now names `by = "VILLCODE"` so the join key is explicit. `tm_borders(fill_alpha = 0.5)` came after the store layer, so it drew borders on a single point and its argument did nothing in tmap v4.4. I replaced it with a district border layer from `town`, which also helps to read the map. Last, `tm_dots()` has no `col` argument in v4, so I switched to `tm_symbols()` with shape 21 to get a red dot with a black outline.
+:::
+
+```{r}
+#| label: map-bt
+#| fig-width: 8
+#| fig-height: 8
+tm_shape(Trade_area) +
+  tm_polygons(fill = "p_ij",
+              fill.scale = tm_scale_intervals(
+                style = "quantile",
+                n = 10,
+                values = "brewer.blues"),
+              fill.legend = tm_legend(
+                title = "Patronage Probability"),
+              col = "grey85",
+              lwd = 0.3) +
+tm_shape(town) +
+  tm_borders(col = "grey35", lwd = 0.8) +
+tm_shape(selected_store) +
+  tm_symbols(fill = "red", col = "black",
+             shape = 21, size = 0.6) +
+  tm_title("Distribution of Patronage Probability of Store BT by village") +
+  tm_layout(frame = TRUE) +
+  tm_compass(type = "8star", size = 2) +
+  tm_scalebar() +
+  tm_grid(alpha = 0.2)
+```
+
+BT sits in Beitun District and draws most strongly from its own neighbourhood. Nine villages have a probability above 0.5 and all nine are in Beitun, led by Pingshun at 0.94, only 209 m from the store. The share drops fast once another store is closer than BT. DT is only 1.5 km away, and the villages between the two split their custom.
+
+The map also shows something less obvious. The large rural villages in Taiping and Xinshe in the east fall in the top classes too, even though BT gets a median of only 3% to 4% there. These villages are far from every store, so the probabilities flatten out and BT ends up with a slightly bigger slice than in most of the city. Quantile classes put the same number of villages in each colour, which stretches these small values across the darker half of the legend. Section 6.1 redraws the map with fixed breaks.
+
+### 5.2 Store sales analysis
+
+The Huff model can also estimate how many customers each store should get. `P_CNT` from the village layer joins onto `huff_share`, and `shares.total()` multiplies each probability by the village population and sums it by store.
+
+```{r}
+#| label: huff-pp
+huff_share_pp <- huff_share %>%
+  left_join(village %>%
+              st_drop_geometry() %>%
+              select(VILLCODE, P_CNT),
+            by = "VILLCODE") %>%
+  relocate(distance, .after = last_col())
+
+huff_total <- shares.total(
+  huff_share_pp, "VILLCODE", "Store_CD",
+  "p_ij", "P_CNT")
+
+store_sales_est <- stores %>%
+  left_join(huff_total,
+            by = join_by("Store_CD" == "suppliers_single"))
+```
+
+`sum_E_j` is measured in people. The 28 values add up to 2,804,359, the total population, because every resident is shared out among the stores. The comparison below is between expected customers and actual sales in dollars, so only the shape of the relationship matters.
+
+```{r}
+#| label: scatter-est
+#| fig-width: 7
+#| fig-height: 6
+store_sales_nongeom <- store_sales_est %>%
+  st_drop_geometry()
+
+ggscatterstats(
+  store_sales_nongeom,
+  x = sum_E_j,
+  y = Total_Sales)
+```
+
+The Pearson correlation is 0.58 (95% CI 0.26 to 0.78, t(26) = 3.60, p = 0.001). Stores with more expected customers do sell more, but a straight line explains only about a third of the variation in sales. BT gets the highest estimate at 138,306 people and ranks 15th in real sales. FH is the top seller and sits fourth in the estimate.
+
+### 5.3 Reshaping to a wide table
+
+The last chunk of the course page turns `huff_share` into a wide table with one row per village and one column per store.
+
+```{r}
+#| label: wider
+huff_share_wider <- huff_share %>%
+  select(VILLCODE, Store_CD, p_ij) %>%
+  pivot_wider(names_from = Store_CD,
+              values_from = p_ij)
+
+dim(huff_share_wider)
+```
+
+The course does not use it further. I use it in Section 6.3 and Section 6.4 to find the leading store in each village and how contested each village is.
+
+## Part 6 Going further
+
+### 6.1 The same store with fixed breaks
+
+Quantile classes answer "which villages rank highest for BT", but they hide how large the probability is. The top decile alone covers values from 0.068 to 0.944. Fixed breaks tied to business meaning are easier to read.
+
+```{r}
+#| label: bt-fixed
+#| fig-width: 8
+#| fig-height: 8
+tm_shape(Trade_area) +
+  tm_polygons(fill = "p_ij",
+              fill.scale = tm_scale_intervals(
+                breaks = c(0, 0.05, 0.1, 0.2, 0.5, 1),
+                values = "brewer.blues"),
+              fill.legend = tm_legend(
+                title = "Patronage Probability"),
+              col = "grey85",
+              lwd = 0.3) +
+tm_shape(town) +
+  tm_borders(col = "grey35", lwd = 0.8) +
+tm_shape(selected_store) +
+  tm_symbols(fill = "red", col = "black",
+             shape = 21, size = 0.6) +
+  tm_title("Store BT with fixed breaks") +
+  tm_layout(frame = TRUE) +
+  tm_scalebar()
+```
+
+```{r}
+#| label: bt-fixed-count
+table(cut(market_share$p_ij,
+          breaks = c(0, 0.05, 0.1, 0.2, 0.5, 1)))
+```
+
+With fixed breaks the picture is much tighter. 528 of the 617 villages give BT less than 5%, and only 25 give it more than 20%. Most of the eastern villages that looked strong on the quantile map now sit in the lightest class with the rest of the city. For the business team I would show this version, since a colour then means the same probability everywhere.
+
+### 6.2 Trade area of TG, the store the text meant
+
+TG is the store in Dajia District at the north end of the network. Its nearest neighbour is 11.4 km away, the most isolated position among the 28 stores. I expected its trade area to look very different from BT's.
+
+```{r}
+#| label: tg
+#| fig-width: 8
+#| fig-height: 8
+Trade_area_tg <- village %>%
+  left_join(huff_share %>% filter(Store_CD == "TG"),
+            by = "VILLCODE")
+
+tm_shape(Trade_area_tg) +
+  tm_polygons(fill = "p_ij",
+              fill.scale = tm_scale_intervals(
+                breaks = c(0, 0.05, 0.1, 0.2, 0.5, 1),
+                values = "brewer.blues"),
+              fill.legend = tm_legend(
+                title = "Patronage Probability"),
+              col = "grey85",
+              lwd = 0.3) +
+tm_shape(town) +
+  tm_borders(col = "grey35", lwd = 0.8) +
+tm_shape(stores %>% filter(Store_CD == "TG")) +
+  tm_symbols(fill = "red", col = "black",
+             shape = 21, size = 0.6) +
+  tm_title("Store TG with fixed breaks") +
+  tm_layout(frame = TRUE) +
+  tm_scalebar()
+```
+
+```{r}
+#| label: tg-count
+nn_dist <- st_distance(stores)
+diag(nn_dist) <- NA
+tibble(Store_CD = stores$Store_CD,
+       nearest_store_m = round(apply(nn_dist, 1, min, na.rm = TRUE))) %>%
+  arrange(desc(nearest_store_m)) %>%
+  head(5)
+
+table(cut(Trade_area_tg$p_ij,
+          breaks = c(0, 0.05, 0.1, 0.2, 0.5, 1)))
+```
+
+TG holds more than half the custom in 29 villages, against 9 for BT. Twenty of them are in Dajia, seven in Daan and two in Waipu, and the highest value reaches 0.99. With no store nearby, the model hands TG almost the whole northern coast. Yet TG has the second lowest real sales of the 28 stores, which already hints that distance alone does not explain sales well. Section 6.6 looks at this.
+
+### 6.3 Primary trade areas from the wide table
+
+The Huff probabilities overlap, so every store has some share everywhere. A common way to draw clean boundaries is to give each village to the store with the highest probability. The wide table makes this a one-liner with `max.col()`.
+
+```{r}
+#| label: dominant
+p_mat <- as.matrix(huff_share_wider[, -1])
+
+dominant <- tibble(
+  VILLCODE  = huff_share_wider$VILLCODE,
+  dom_store = colnames(p_mat)[max.col(p_mat, ties.method = "first")],
+  max_p     = apply(p_mat, 1, max),
+  eff_n     = 1 / rowSums(p_mat^2))
+
+primary_area <- village %>%
+  left_join(dominant, by = "VILLCODE") %>%
+  group_by(dom_store) %>%
+  summarise(n_village = n(),
+            population = sum(P_CNT))
+```
+
+```{r}
+#| label: map-dominant
+#| fig-width: 8
+#| fig-height: 8
+tm_shape(primary_area) +
+  tm_polygons(fill = "dom_store",
+              fill.scale = tm_scale_categorical(
+                values = "brewer.set3"),
+              fill.legend = tm_legend_hide(),
+              col = "white",
+              lwd = 1.2) +
+tm_shape(stores) +
+  tm_dots(size = 0.3) +
+  tm_labels(text = "Store_CD", size = 0.6) +
+  tm_title("Primary trade area of each store") +
+  tm_layout(frame = TRUE)
+```
+
+The map splits Taichung into 28 cells, one per store. The cells are small and tightly packed in the central districts and become very large toward the edges, where TG, EH and WF each cover a huge rural area.
+
+```{r}
+#| label: dominant-table
+primary_area %>%
+  st_drop_geometry() %>%
+  arrange(desc(population))
+
+nearest <- huff_share %>%
+  group_by(VILLCODE) %>%
+  slice_min(distance, n = 1) %>%
+  ungroup()
+mean(nearest$Store_CD ==
+       dominant$dom_store[match(nearest$VILLCODE, dominant$VILLCODE)])
+```
+
+Every store leads in at least nine villages, so no store is fully shadowed by its neighbours. FY has the largest primary population at 157,239 and LM the smallest at 57,631. The last line returns 1, which means the leading store is always the nearest store. With equal attractiveness this map is simply a Thiessen (Voronoi) partition clipped to the villages. A real size or brand variable would be needed before this map says anything more than the distance map does.
+
+### 6.4 How contested each village is
+
+The highest probability in a village tells me how loyal that village is to one store. A value near 1 means one store dominates, and a value near 0.1 means the custom is spread thin. I also computed the effective number of stores, `1 / sum(p^2)`, which reads as "how many equally strong stores this village behaves as if it had".
+
+```{r}
+#| label: map-contested
+#| fig-width: 8
+#| fig-height: 8
+contest <- village %>%
+  left_join(dominant, by = "VILLCODE")
+
+tm_shape(contest) +
+  tm_polygons(fill = "max_p",
+              fill.scale = tm_scale_intervals(
+                breaks = c(0, 0.2, 0.3, 0.5, 0.7, 1),
+                values = "brewer.yl_gn_bu"),
+              fill.legend = tm_legend(
+                title = "Highest store probability"),
+              col = NA) +
+tm_shape(town) +
+  tm_borders(col = "grey40", lwd = 0.6) +
+tm_shape(stores) +
+  tm_dots(size = 0.2, fill = "black") +
+  tm_title("How strongly the leading store holds each village") +
+  tm_layout(frame = TRUE)
+```
+
+```{r}
+#| label: contested-table
+summary(dominant$max_p)
+sum(dominant$max_p < 0.3)
+
+town_lookup <- town %>%
+  st_drop_geometry() %>%
+  select(TOWNCODE, TOWNENG)
+
+contest %>%
+  st_drop_geometry() %>%
+  left_join(town_lookup, by = "TOWNCODE") %>%
+  group_by(TOWNENG) %>%
+  summarise(villages = n(),
+            mean_max_p = round(mean(max_p), 2),
+            mean_eff_n = round(mean(eff_n), 1)) %>%
+  arrange(mean_max_p)
+```
+
+The map shows dark rings around each store and pale gaps in between. In 191 villages, close to a third, no store reaches 30%. The most contested districts are Dadu (mean highest probability 0.23, about 13.7 effective stores), Qingshui (0.29) and Xinshe (0.31), and none of the three has a store of its own. Residents there sit between several stores at similar distances, so the model spreads them thin. Dajia (0.71), Fengyuan (0.65) and Wuqi (0.65) are the most loyal, each with one store that has no close competitor. For site selection I read the pale gaps as places with demand that no single store holds.
+
+### 6.5 Tuning the distance decay
+
+The default `lambda = -2` is a textbook value and was never fitted to this data. I reran the model with a range of decay values and checked which one tracks the real sales best. The real `huff.shares()` loops over every row and is slow, so I wrote a short vectorised version and first confirmed it gives the same answer.
+
+```{r}
+#| label: huff-fast
+huff_fast <- function(im, lambda = -2, gamma = 1) {
+  im %>%
+    group_by(VILLCODE) %>%
+    mutate(U_ij = Store_size^gamma * distance^lambda,
+           p_ij = U_ij / sum(U_ij)) %>%
+    ungroup()
+}
+
+check <- huff_fast(interaction_matrix) %>%
+  select(VILLCODE, Store_CD, p_fast = p_ij) %>%
+  left_join(huff_share %>% select(VILLCODE, Store_CD, p_ij),
+            by = c("VILLCODE", "Store_CD"))
+all.equal(check$p_fast, check$p_ij)
+```
+
+```{r}
+#| label: lambda-grid
+#| fig-width: 8
+#| fig-height: 4.5
+pop_lookup <- village %>%
+  st_drop_geometry() %>%
+  select(VILLCODE, P_CNT)
+
+lambda_fit <- map_dfr(seq(-0.5, -4, by = -0.25), function(l) {
+  est <- huff_fast(interaction_matrix, lambda = l) %>%
+    left_join(pop_lookup, by = "VILLCODE") %>%
+    group_by(Store_CD) %>%
+    summarise(E_j = sum(p_ij * P_CNT)) %>%
+    left_join(store_sales_nongeom %>% select(Store_CD, Total_Sales),
+              by = "Store_CD")
+  tibble(lambda = l,
+         pearson = cor(est$E_j, est$Total_Sales),
+         spearman = cor(est$E_j, est$Total_Sales, method = "spearman"))
+})
+
+lambda_fit %>%
+  pivot_longer(-lambda, names_to = "measure", values_to = "r") %>%
+  ggplot(aes(lambda, r, colour = measure)) +
+  geom_vline(xintercept = -2, linetype = "dashed", colour = "grey50") +
+  geom_line(linewidth = 0.8) +
+  geom_point() +
+  scale_x_reverse() +
+  scale_colour_discrete(labels = c(pearson = "Pearson",
+                                   spearman = "Spearman")) +
+  labs(x = "lambda (distance decay)",
+       y = "Correlation with actual sales",
+       colour = NULL,
+       title = "Weaker distance decay tracks real sales better") +
+  theme_minimal()
+```
+
+The correlation falls steadily as the decay gets stronger. It is 0.67 at `lambda = -0.5`, 0.58 at the default of -2 and 0.32 at -4, and the Spearman curve follows the same path. A weaker decay means customers are less put off by distance than the default assumes, which fits a city where people drive or ride scooters to eat. I also tried an exponential decay and got 0.68 at a rate of 0.1 per km, about the same as the best power value.
+
+I would not pick a new `lambda` from this alone. With only 28 stores, 0.67 and 0.58 both sit inside each other's confidence interval. The proper way is to calibrate on where customers actually live. The sales file has a `POD code` per row that looks like a customer zone, but there is no lookup from those codes to villages, so I could not use it.
+
+### 6.6 Which stores sell more or less than expected
+
+I fitted a simple linear model of sales on expected customers and looked at the standardised residuals. A store far below the line sells less than its location suggests, and a store far above sells more.
+
+```{r}
+#| label: residuals
+#| fig-width: 8
+#| fig-height: 6
+fit <- lm(Total_Sales ~ sum_E_j, data = store_sales_nongeom)
+
+resid_tbl <- store_sales_nongeom %>%
+  mutate(std_resid = rstandard(fit),
+         sales_per_customer = Total_Sales / sum_E_j,
+         flag = case_when(std_resid < -1 ~ "Below",
+                          std_resid >  1 ~ "Above",
+                          TRUE ~ "Within"))
+
+ggplot(resid_tbl, aes(sum_E_j, Total_Sales)) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey40", fill = "grey85") +
+  geom_point(aes(colour = flag), size = 2.5) +
+  geom_text_repel(aes(label = Store_CD), size = 3,
+                  max.overlaps = 30) +
+  scale_colour_manual(values = c(Below = "#c0504d",
+                                 Above = "#4f81bd",
+                                 Within = "grey50")) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  scale_x_continuous(labels = scales::label_comma()) +
+  labs(x = "Expected customers (sum_E_j)",
+       y = "Actual sales",
+       colour = "Standardised residual",
+       title = "Stores above and below what location predicts") +
+  theme_minimal()
+
+resid_tbl %>%
+  select(Store_CD, sum_E_j, Total_Sales,
+         sales_per_customer, std_resid) %>%
+  arrange(std_resid) %>%
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+TG is the clearest underperformer with a residual of -2.06 and only 18.6 dollars of sales per expected customer, against a median of 59. QH, ZS, SQ and EH also fall more than one standard deviation below, and BT, the store with the highest estimate, just crosses that line at -1.01. QH and CT are the closest pair of stores, only 1.25 km apart, and QH also has the lowest average bill of all stores at about 418. On the other side DD, WF, ZK, LM and MT sell more than their location predicts, and DD earns 83 dollars per expected customer.
+
+These residuals are the part of sales that distance cannot explain, things like store size, parking, drive-through or a nearby campus. They are the first place I would look for a real attractiveness variable to replace the constant `Store_size`.
+
+### 6.7 What happens if the New Store opens
+
+`STORES_TC1` holds the same 28 stores plus one point called "New Store" with code `NS`. I confirmed the other 28 coordinates match `STORES_TC` exactly, then reran the model with 29 stores.
+
+```{r}
+#| label: new-store
+stores_tc1 <- st_read(dsn = "data/geospatial",
+                      layer = "STORES_TC1",
+                      quiet = TRUE)
+new_store <- stores_tc1 %>% filter(Store_CD == "NS")
+
+st_join(new_store, town["TOWNENG"]) %>%
+  st_drop_geometry() %>%
+  select(Store_Name, Store_CD, TOWNENG)
+
+stores29 <- bind_rows(stores %>% select(Store_CD),
+                      new_store %>% select(Store_CD)) %>%
+  mutate(Store_size = 100)
+
+distmat29 <- st_distance(village_center, stores29)
+rownames(distmat29) <- village$VILLCODE
+colnames(distmat29) <- stores29$Store_CD
+
+im29 <- distmat29 %>%
+  as.data.frame() %>%
+  rownames_to_column("VILLCODE") %>%
+  pivot_longer(-VILLCODE, names_to = "Store_CD",
+               values_to = "distance") %>%
+  mutate(distance = as.numeric(distance),
+         Store_size = 100) %>%
+  relocate(distance, .after = last_col())
+
+huff29 <- huff.shares(im29, "VILLCODE", "Store_CD",
+                      "Store_size", "distance") %>%
+  left_join(pop_lookup, by = "VILLCODE")
+
+total29 <- shares.total(huff29, "VILLCODE", "Store_CD",
+                        "p_ij", "P_CNT")
+
+impact <- huff_total %>%
+  select(Store_CD = suppliers_single, before = sum_E_j) %>%
+  left_join(total29 %>% select(Store_CD = suppliers_single, after = sum_E_j),
+            by = "Store_CD") %>%
+  mutate(change_pct = (after - before) / before * 100) %>%
+  arrange(change_pct)
+
+total29 %>% filter(suppliers_single == "NS")
+```
+
+```{r}
+#| label: new-store-plot
+#| fig-width: 8
+#| fig-height: 6
+ggplot(impact, aes(change_pct, fct_reorder(Store_CD, change_pct))) +
+  geom_col(fill = "#c0504d") +
+  geom_text(aes(label = sprintf("%.1f%%", change_pct)),
+            hjust = 1.1, size = 3) +
+  scale_x_continuous(expand = expansion(mult = c(0.12, 0.02))) +
+  labs(x = "Change in expected customers (%)",
+       y = NULL,
+       title = "Estimated loss per store after NS opens") +
+  theme_minimal()
+```
+
+NS sits in North District, 1.1 km from TY and 1.4 km from MT. The model gives it 103,321 expected customers, which would put it in the middle of the 28 stores. Every one of those customers comes out of an existing store, since the model shares out a fixed population. TY loses 11.0%, MT 9.6% and FH 8.1%, while stores on the far side of the city such as TG and EH lose about 1%.
+
+```{r}
+#| label: new-store-villages
+huff29 %>%
+  group_by(VILLCODE) %>%
+  slice_max(p_ij, n = 1) %>%
+  ungroup() %>%
+  filter(Store_CD == "NS") %>%
+  left_join(village %>% st_drop_geometry() %>% select(VILLCODE, TOWNCODE),
+            by = "VILLCODE") %>%
+  left_join(town_lookup, by = "TOWNCODE") %>%
+  count(TOWNENG)
+```
+
+NS would become the leading store in 22 villages with 57,524 residents, eleven in North District and five in Zhong District, which has no store today. The location fills a real gap downtown, but on these numbers about a third of its customers would come from just TY, MT and FH. A real decision would need the sales lift from new customers, which a fixed population model cannot show.
+
+## My takeaway
+
+The Huff model in this exercise is driven by distance alone, because every store has the same `Store_size`. That makes the trade area maps easy to build and also limits what they can say. The primary trade area map came out as a plain Voronoi partition, and the leading store in every one of the 617 villages was simply the nearest one.
+
+The sales check gave a moderate fit, r = 0.58, and the residuals were more useful than the fit itself. TG, QH and ZS sell far less than their locations predict, and DD, WF and ZK sell far more. A weaker decay of -0.5 raised the fit to 0.67, but with 28 stores I treat that as a hint until it can be calibrated on where customers live.
+
+The two classification schemes for BT showed me how much the map design changes the message. Quantile classes made BT look strong in the eastern hills where its median share is 3% to 4%, and fixed breaks showed those villages as weak.
+
+On the data side, the five missing villages were unassigned coastal land and the eight unmatched population rows were the whole of Heping District. Neither changes the result much, but I only found them by checking what was dropped. The New Store scenario showed TY, MT and FH would lose 8% to 11% of their expected customers if NS opens in North District.

@@ -60,6 +60,10 @@ ICT regions for Shan State's 55 townships. Ward clustering first, then SKATER an
 ### [Hands-on Ex07](Hands-on_Ex/Hands-on_Ex07/Hands-on_Ex07.qmd)
 Accessibility to eldercare centres across 3,125 hexagons in Singapore. Hansen, KD2SFCA and SAM computed from a road distance matrix, then compared by planning region after fixing duplicated hexagons in the spatial join.
 :::
+::: {.g-col-12 .g-col-md-4}
+### [Hands-on Ex08](Hands-on_Ex/Hands-on_Ex08/Hands-on_Ex08.qmd)
+Huff model trade areas for 28 fast-food stores across 617 villages in Taichung.
+:::
 :::
 
 ## In-class Exercises
