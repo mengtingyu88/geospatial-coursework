@@ -64,6 +64,10 @@ Accessibility to eldercare centres across 3,125 hexagons in Singapore. Hansen, K
 ### [Hands-on Ex08](Hands-on_Ex/Hands-on_Ex08/Hands-on_Ex08.qmd)
 Huff model trade areas for 28 fast-food stores across 617 villages in Taichung.
 :::
+::: {.g-col-12 .g-col-md-4}
+### [Hands-on Ex09](Hands-on_Ex/Hands-on_Ex09/Hands-on_Ex09.qmd)
+Hedonic pricing of 1,436 condominium resales in Singapore. An OLS model with full diagnostics, then fixed and adaptive bandwidth GWR, and a check of where the local coefficients can be trusted.
+:::
 :::
 
 ## In-class Exercises
